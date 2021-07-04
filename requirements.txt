@@ -1,0 +1,9 @@
+loguru==0.5.3
+numpy==1.20.3
+pandas==0.25.3
+easydict==1.9
+spacy==3.0.6
+torch==1.8.1
+tqdm==4.48.2
+sentence_transformers==1.2.0
+TRUNAJOD==0.1.1

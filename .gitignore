@@ -1,3 +1,5 @@
+examples/export_checkpoints
+
 # Distribution / packaging
 .Python
 build/

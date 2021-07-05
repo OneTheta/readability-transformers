@@ -119,7 +119,7 @@ class ReadabilityTransformer:
     def _load_st_model(self):
         model_path = self.model_path
         st_model_path = os.path.join(model_path, "0_SentenceTransformer")
-        st_model = SentenceTransformer(st_model_path)
+        st_model = SentenceTransformer(st_model_path, device=self.device)
         st_loss = losses.CosineSimilarityLoss(self.st_model)
 
         st_model.to(self.device)
@@ -132,7 +132,7 @@ class ReadabilityTransformer:
         rp_model_path = os.path.join(model_path, "1_Prediction")
         rp_model_torch_path = os.path.join(rp_model_path, "pytorch_model.bin")
 
-        rp_model = torch.load(rp_model_torch_path)
+        rp_model = torch.load(rp_model_torch_path, map_location=self.device)
         assert self.double == rp_model.double
 
         rp_model.to(self.device)

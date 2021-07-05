@@ -11,14 +11,18 @@ from readability_transformers.losses import WeightedRankingMSELoss
 TEST_CSV_PATH = 'readability_transformers/dataset/data/test.csv'
 OUTPUT_CSV_PATH = './'
 
+def get_test_df():
+    commonlit_data = CommonLitDataset("test")
+    return commonlit_data.data
+
 def inference_on_dataset():
     model = ReadabilityTransformer(
-        model_path="export_checkpoints/pred_twostep_1",
+        model_path="export_checkpoints/pred_twostep_5",
         device="cpu",
         double=True
     )
 
-    test_df = pd.read_csv(TEST_CSV_PATH)
+    test_df = get_test_df()
 
     ids = test_df["id"].values
     passages = test_df["excerpt"].values

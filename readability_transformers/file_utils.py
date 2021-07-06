@@ -51,11 +51,10 @@ def unzip_to(zip_file_path, target_path):
 
 
 def check_cache_exists_or_init():
-    if not os.path.isdir(DATA_CACHE_DIR):
-        os.makedirs(os.path.expanduser('~/.cache/readability-transformers'), exist_ok=True)
-        os.makedirs(os.path.expanduser('~/.cache/readability-transformers/data'), exist_ok=True)
-        os.makedirs(os.path.expanduser('~/.cache/readability-transformers/data/all'), exist_ok=True)
-        os.makedirs(os.path.expanduser('~/.cache/readability-transformers/data/preapply'), exist_ok=True)
+    os.makedirs(os.path.expanduser('~/.cache/readability-transformers'), exist_ok=True)
+    os.makedirs(os.path.expanduser('~/.cache/readability-transformers/data'), exist_ok=True)
+    os.makedirs(os.path.expanduser('~/.cache/readability-transformers/data/all'), exist_ok=True)
+    os.makedirs(os.path.expanduser('~/.cache/readability-transformers/data/preapply'), exist_ok=True)
 
     if not os.path.isfile(MAPPER_PATH):
         json.dump({"all": dict(), "preapply": dict()}, open(MAPPER_PATH, "w"))

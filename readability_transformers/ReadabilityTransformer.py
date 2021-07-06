@@ -491,8 +491,38 @@ class ReadabilityTransformer:
         assert len(feature_matrix) == len(passages)
         assert len(feature_matrix[0]) == len(self.features)
 
+        predictions_collect = []
         with torch.no_grad():
-            predictions = self.forward(passages, feature_matrix)
+            batch_size = batch_size
+            n_batches = len(passages) // batch_size
+
+            for full_batch_idx in range(n_batches):
+                start_idx = full_batch_idx * batch_size
+                end_idx = (full_batch_idx + 1) * batch_size
+
+                passage_batch = passages[start_idx : end_idx]
+                feature_batch = feature_matrix[start_idx : end_idx]
+
+                assert len(passage_batch) == batch_size
+                assert len(feature_batch) == batch_size
+                
+                one_prediction = self.forward(passage_batch, feature_batch)
+                predictions_collect.append(one_prediction)
+
+            predictions = torch.stack(predictions_collect, dim=0).flatten(end_dim=1)
+            if (n_batches * batch_size) < len(passages):
+                # there is extra
+                start_idx = n_batches * batch_size 
+
+                leftovers_passage = passages[start_idx:]
+                leftovers_features = feature_matrix[start_idx:]
+
+                assert len(leftovers_passage) < batch_size
+                assert len(leftovers_features) < batch_size
+
+                leftovers_predictions = self.forward(leftovers_passage, leftovers_features)
+                predictions = torch.cat((predictions, leftovers_predictions))
+            
 
         """
         5. Denormalize Prediction

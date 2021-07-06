@@ -149,7 +149,7 @@ def rp_train(model, output_path):
 
 
 no_twostep_path = "checkpoints/ablations/eval_twostep/no_twostep"
-output_path = os.path.join(no_twostep_path, f"no_twostep_{1}")
+output_path = os.path.join(no_twostep_path, f"no_twostep_{2}")
 os.mkdir(output_path)
 
 no_twostep_train(output_path)

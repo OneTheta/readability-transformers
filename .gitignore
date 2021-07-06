@@ -1,4 +1,4 @@
-examples/export_checkpoints
+checkpoints/
 
 # Distribution / packaging
 .Python

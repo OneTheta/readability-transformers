@@ -190,6 +190,8 @@ class Prediction(nn.Module):
         pickle.dump(config, open(os.path.join(path, "RTconfig.pkl"), "wb"))
 
 
+
+
 class FCPrediction(Prediction):
     def __init__(self, input_size: int, n_layers: int, h_size: int, double: bool):
         """PREDICTION_MODEL_1: Fully-Connected NN. 

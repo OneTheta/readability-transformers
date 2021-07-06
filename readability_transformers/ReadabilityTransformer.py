@@ -32,6 +32,7 @@ from sentence_transformers import SentenceTransformer, models, losses, evaluatio
 from .readers import PairwiseDataReader, PredictionDataReader
 from .models import Prediction, FCPrediction, TwoStepArchitecture, TwoStepFCPrediction, TwoStepTRFPrediction
 from .features import FeatureBase
+from .file_utils import load_from_cache_pickle, save_to_cache_pickle
 
 CACHE_DIR = os.path.expanduser("~/.cache/readability-transformers/data")
 
@@ -73,7 +74,8 @@ class ReadabilityTransformer:
             shutil.copytree(self.model_path, new_checkpoint_path)
             self.model_path = new_checkpoint_path
 
-        self.setup_load_checkpoint(self.model_path)
+        if self.model_path:
+            self.setup_load_checkpoint(self.model_path)
 
     def setup_load_checkpoint(self, model_path):
         st_path = os.path.join(model_path, "0_SentenceTransformer")
@@ -204,6 +206,10 @@ class ReadabilityTransformer:
 
         self.st_model = st_model
         self.st_loss = st_loss
+
+        # have a saved initial version
+        if self.st_path:
+            self.st_model.save(self.st_path)
 
     def init_rp_model(
         self, 
@@ -541,18 +547,19 @@ class ReadabilityTransformer:
             if cache_ids is None:
                 raise Exception("Cache set to true but no label for the cache.")
             else:
-                os.makedirs(CACHE_DIR, exist_ok=True)
+                # Load what we can from cache.
                 for cache_id in cache_ids:
-                    filepath = os.path.join(CACHE_DIR, "feature_"+cache_id+".pkl")
-                    if os.path.isfile(filepath):
+                    cache_loaded = load_from_cache_pickle("preapply", f"features_{cache_id}")
+                    if cache_loaded is not None:
                         logger.info(f"Found & loading cache ID: {cache_id}...")
-                        loaded = pickle.load(open(filepath, "rb"))
-                        features_applied[cache_id] = loaded
+                        features_applied[cache_id] = cache_loaded
+
         for one_df in df_list:
             col_list = one_df.columns.values
             already_features = [col for col in col_list if col.startswith("feature_")]
             if len(already_features) > 0:
                 raise Exception("DataFrame has columns starting with 'feature_'. This is not allowed since applied features will take this format.")
+       
         if extra_normalize_columns is None:
             extra_normalize_columns = []
         else:
@@ -566,9 +573,10 @@ class ReadabilityTransformer:
             assert set(current_loaded).issubset(set(cache_ids))
             remaining_ids = list(set(cache_ids).difference(set(current_loaded)))
             remaining = [df_list[cache_ids.index(remain_id)] for remain_id in remaining_ids]
+        # remaining == dataframes that we have not yet loaded from cache.
+        # obviously if cache == False then remaining == full requested df_list
 
         for remain_id, remain_data in zip(remaining_ids, remaining):
-            data = remain_data
             for idx, row in tqdm(remain_data.iterrows(), total=len(remain_data)):
                 text = row[text_column] # refer to docstring
                 text_features = dict()
@@ -579,14 +587,13 @@ class ReadabilityTransformer:
                         text_features[feature_key] = feature_dict[feature_key]
                 remain_data.loc[idx, ['feature_' + k for k in text_features.keys()]] = text_features.values()
             
+            if cache:
+                logger.info(f"Saving '{remain_id}' to cache...")
+                save_to_cache_pickle("preapply", f"features_{remain_id}", "features_"+remain_id+".pkl", remain_data)
+            
             features_applied[remain_id] = remain_data
 
-            if cache:
-                logger.info(f"Saving lingfeat {remain_id} to cache...")
-                filepath = os.path.join(CACHE_DIR, "feature_"+remain_id+".pkl")
-                pickle.dump(data, open(filepath, "wb"))
-                features_applied[remain_id] = remain_data
-         
+        # features_applied == list of DFs where feature columns have been appended.
         final_list = None
         if cache:
             final_list = [features_applied[cache_id] for cache_id in cache_ids]
@@ -597,6 +604,7 @@ class ReadabilityTransformer:
         feature_list = feature_list + extra_normalize_columns
         if target_column not in feature_list:
             # if target_column not given in extra_normalize_columns
+            # kind of just an error check since we do want the target_column in the feature_list.
             feature_list.append(target_column)
         
         if normalize:
@@ -640,6 +648,7 @@ class ReadabilityTransformer:
             final_list[df_idx] = df.drop(columns=blacklist_features)
       
         # For code readability's sake, I'm listing all the instance var settings here:
+        # when we load the model again, we'll find these values.
         self.normalize = normalize
         self.feature_maxes = self.feature_maxes
         self.feature_mins = self.feature_mins

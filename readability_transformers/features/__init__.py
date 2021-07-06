@@ -12,6 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from readability_transformers.features.FeatureBase import FeatureBase, CustomFeatureExtractor
-# from readability_transformers.features.LingFeat import LingFeat
-from readability_transformers.features.TRUNAJODExtractor import TRUNAJODExtractor
+from .FeatureBase import FeatureBase, CustomFeatureExtractor
+from .TRUNAJOD import TRUNAJODExtractor
+from .LingFeat import LingFeatExtractor

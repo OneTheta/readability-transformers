@@ -1,0 +1,14 @@
+2021-07-06 21:55:29.194933: W tensorflow/stream_executor/platform/default/dso_loader.cc:60] Could not load dynamic library 'libcudart.so.11.0'; dlerror: libcudart.so.11.0: cannot open shared object file: No such file or directory
+2021-07-06 21:55:29.194967: I tensorflow/stream_executor/cuda/cudart_stub.cc:29] Ignore above cudart dlerror if you do not have a GPU set up on your machine.
+Some weights of the model checkpoint at bert-base-uncased were not used when initializing BertModel: ['cls.predictions.decoder.weight', 'cls.predictions.transform.LayerNorm.bias', 'cls.predictions.bias', 'cls.seq_relationship.weight', 'cls.predictions.transform.dense.weight', 'cls.seq_relationship.bias', 'cls.predictions.transform.LayerNorm.weight', 'cls.predictions.transform.dense.bias']
+- This IS expected if you are initializing BertModel from the checkpoint of a model trained on another task or with another architecture (e.g. initializing a BertForSequenceClassification model from a BertForPreTraining model).
+- This IS NOT expected if you are initializing BertModel from the checkpoint of a model that you expect to be exactly identical (initializing a BertForSequenceClassification model from a BertForSequenceClassification model).
+2021-07-06 21:55:44.140 | INFO     | readability_transformers.dataset.Dataset:split_train_valid_test:62 - Considering cache...
+2021-07-06 21:55:44.144 | INFO     | readability_transformers.dataset.Dataset:split_train_valid_test:67 - Found and cached splits: ('train', 'valid', 'test')
+2021-07-06 22:00:05.521 | INFO     | readability_transformers.models.TwoStepArchitecture:fit:120 - Evaluation Step: 1000 (Epoch 0) epoch train loss avg=0.10960149238662667
+2021-07-06 22:13:05.984 | INFO     | readability_transformers.models.TwoStepArchitecture:fit:120 - Evaluation Step: 2000 (Epoch 0) epoch train loss avg=0.07628497322329847
+2021-07-06 22:26:10.183 | INFO     | readability_transformers.models.TwoStepArchitecture:fit:120 - Evaluation Step: 3000 (Epoch 0) epoch train loss avg=0.055041839638888715
+2021-07-06 22:39:15.050 | INFO     | readability_transformers.models.TwoStepArchitecture:fit:120 - Evaluation Step: 4000 (Epoch 0) epoch train loss avg=0.042700070399647204
+2021-07-06 22:52:20.194 | INFO     | readability_transformers.models.TwoStepArchitecture:fit:120 - Evaluation Step: 5000 (Epoch 0) epoch train loss avg=0.03497223070329476
+2021-07-06 22:58:02.523 | INFO     | readability_transformers.models.TwoStepArchitecture:fit:138 - Epoch 0 train loss avg=0.03277193065479869
+2021-07-06 23:06:35.262 | INFO     | readability_transformers.models.TwoStepArchitecture:fit:120 - Evaluation Step: 6000 (Epoch 1) epoch train loss avg=0.0048478483199205285

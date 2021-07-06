@@ -4,7 +4,7 @@ print(find_packages())
 setup(
   name = 'readability-transformers',      
   packages=find_packages(),
-  version = '0.0.8',     
+  version = '0.0.9',     
   license='Apache License 2.0',       
   description = 'Package for integrating transformer modules for readability-related NLP tasks.',  
   long_description=open("README.md", "r", encoding="utf-8").read(),

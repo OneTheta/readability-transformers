@@ -20,7 +20,7 @@ import tqdm
 def nop(it, *a, **k):
     return it
 tqdm.tqdm = nop
-from utils import nan_check
+from .utils import nan_check
 
 # performance-central dependencies
 import spacy 

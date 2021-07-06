@@ -13,23 +13,60 @@
 # limitations under the License.
 
 import os
+import glob
 import json
 import requests
 import shutil
 import zipfile
 import tarfile
 import pickle
+from tqdm import tqdm
 
 
 DATA_CACHE_DIR = os.path.expanduser("~/.cache/readability-transformers/data")
-MAPPER_PATH = os.path.join(DATA_CACHE_DIR, "mapper.json")
+MODEL_CACHE_DIR = os.path.expanduser("~/.cache/readability-transformers/models")
+MAPPER_PATH = os.path.expanduser("~/.cache/readability-transformers/mapper.json")
+
+
+
+def check_cache_exists_or_init():
+    os.makedirs(os.path.expanduser('~/.cache/readability-transformers'), exist_ok=True)
+    os.makedirs(os.path.expanduser('~/.cache/readability-transformers/data'), exist_ok=True)
+    os.makedirs(os.path.expanduser('~/.cache/readability-transformers/data/all'), exist_ok=True)
+    os.makedirs(os.path.expanduser('~/.cache/readability-transformers/data/preapply'), exist_ok=True)
+    os.makedirs(os.path.expanduser('~/.cache/readability-transformers/models'), exist_ok=True)
+
+    if not os.path.isfile(MAPPER_PATH):
+        json.dump({"all": dict(), "preapply": dict(), "models": dict()}, open(MAPPER_PATH, "w"))
+    else:
+        mapper = load_dataset_mapper()
+        if "all" not in mapper.keys():
+            mapper["all"] = dict()
+        elif "preapply" not in mapper.keys():
+            mapper["preapply"] = dict()
+        elif "models" not in mapper.keys():
+            mapper["models"] = dict()
+        save_dataset_mapper(mapper)
+    
+    return True
 
 def download_file(url, dest):
     local_filename = url.split('/')[-1]
     dest = os.path.join(dest, local_filename)
-    with requests.get(url, stream=True) as r:
-        with open(dest, 'wb') as f:
-            shutil.copyfileobj(r.raw, f)
+    response = requests.get(url, stream=True)
+    total_size_in_bytes= int(response.headers.get('content-length', 0))
+    block_size = 1024 #1 Kibibyte
+    progress_bar = tqdm(total=total_size_in_bytes, unit='iB', unit_scale=True)
+    with open(dest, 'wb') as f:
+        for data in response.iter_content(block_size):
+            progress_bar.update(len(data))
+            f.write(data)
+    progress_bar.close()    
+
+
+    # with requests.get(url, stream=True) as r:
+    #     with open(dest, 'wb') as f:
+    #         shutil.copyfileobj(r.raw, f)
 
     return dest
 
@@ -43,23 +80,11 @@ def unzip_to(zip_file_path, target_path):
         tar.extractall(target_path)
         tar.close()
     elif zip_file_path.endswith("zip"):
-        zip_ref = zipfile.ZipFile(zipped_file_path, "r")
+        zip_ref = zipfile.ZipFile(zip_file_path, "r")
         zip_ref.extractall(dest_url)
         zip_ref.close()
 
     return
-
-
-def check_cache_exists_or_init():
-    os.makedirs(os.path.expanduser('~/.cache/readability-transformers'), exist_ok=True)
-    os.makedirs(os.path.expanduser('~/.cache/readability-transformers/data'), exist_ok=True)
-    os.makedirs(os.path.expanduser('~/.cache/readability-transformers/data/all'), exist_ok=True)
-    os.makedirs(os.path.expanduser('~/.cache/readability-transformers/data/preapply'), exist_ok=True)
-
-    if not os.path.isfile(MAPPER_PATH):
-        json.dump({"all": dict(), "preapply": dict()}, open(MAPPER_PATH, "w"))
-    
-    return True
 
 def save_dataset_mapper(new_mapper):
     json.dump(new_mapper, open(MAPPER_PATH, "w"))
@@ -116,6 +141,38 @@ def check_mapper_or_download(dataset_id, datafile_id, dataset_url, datafiles_met
     
     return mapper
 
+def path_to_rt_model_cache(model_name):
+    mapper = load_dataset_mapper()
+    model_mapper = mapper["models"]
+    if model_name in model_mapper.keys():
+        return model_mapper[model_name]
+    else:
+        return None
+
+def download_rt_model(dataset_url):
+    model_name = dataset_url.split("/")[-1].replace(".tar.gz", "")
+    model_folder_path = os.path.join(MODEL_CACHE_DIR, model_name)
+
+    print(f"Downloading model '{model_name}' from {dataset_url}...")
+    zipped_file_path = download_file(dataset_url, MODEL_CACHE_DIR)
+    unzip_to(zipped_file_path, model_folder_path)
+    os.remove(zipped_file_path)
+
+    folders = os.listdir(model_folder_path)
+    actual_path = os.path.join(model_folder_path, folders[0])
+    for one in glob.glob(actual_path + "/*"):
+        shutil.move(one, os.path.join(model_folder_path, one.split("/")[-1]))
+    os.rmdir(actual_path)
+
+
+    # this actually also helps with mid-download errors since
+    # if download & unzipping didn't 100% complete, the mapper wont have the info stored
+    # which makes it download the whole thing again, which is what we want.
+    mapper = load_dataset_mapper()
+    mapper["models"][model_name] = model_folder_path
+    save_dataset_mapper(mapper)
+    return model_folder_path
+
 
 class CachedDataset:
     def __init__(self, dataset_id: str, dataset_zip_url: str, datafiles_meta: dict):
@@ -133,3 +190,7 @@ class CachedDataset:
             self.datafiles_meta
         )
         return os.path.join(DATA_CACHE_DIR, self.dataset_id, mapper[self.dataset_id][datafile_id])
+
+
+
+check_cache_exists_or_init()

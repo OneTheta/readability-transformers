@@ -17,6 +17,7 @@ import time
 import json
 import shutil
 import pickle
+import requests
 from typing import List, Union
 import numpy as np
 import pandas as pd
@@ -32,14 +33,16 @@ from sentence_transformers import SentenceTransformer, models, losses, evaluatio
 from .readers import PairwiseDataReader, PredictionDataReader
 from .models import Prediction, FCPrediction, TwoStepArchitecture, TwoStepFCPrediction, TwoStepTRFPrediction
 from .features import FeatureBase
-from .file_utils import load_from_cache_pickle, save_to_cache_pickle
+from .file_utils import load_from_cache_pickle, save_to_cache_pickle, path_to_rt_model_cache, download_rt_model
+
 
 CACHE_DIR = os.path.expanduser("~/.cache/readability-transformers/data")
+RT_MODEL_LOOKUP = "http://readability.1theta.com/models/"
 
 class ReadabilityTransformer:
     def __init__(
         self,
-        model_path: str,
+        model_name: str,
         device: str,
         double: bool,
         new_checkpoint_path: str = None,
@@ -48,7 +51,7 @@ class ReadabilityTransformer:
         of the SentenceTransformer then an instantiation of the Prediction model.
 
         Args:
-            st_model_name (str): The transformer model to initialize the SentenceTransformer.
+            st_model_model_namename (str): The transformer model to initialize the SentenceTransformer.
                 This is the same as the model name in the HuggingFace library list of transformer
                 models. e.g. "bert-base-uncased".
             max_seq_length (int): Same usual idea as with HuggingFace transformers. Possible text 
@@ -58,12 +61,16 @@ class ReadabilityTransformer:
                 directory, which will be our new working directory.
             double (bool): Whether this model should use weights that are float32 or float64. 
         '''
-        self.model_path = model_path
+        self.model_name = model_name
         self.device = device
         self.double = double
         self.st_model = None
         self.rp_model = None
         self.new_checkpoint_path = new_checkpoint_path
+
+        if self.model_name:
+            self.model_path = self.process_model_path(self.model_name)
+            self.setup_load_checkpoint(self.model_path)
 
         if self.new_checkpoint_path is not None:
             if os.path.isdir(new_checkpoint_path):
@@ -74,8 +81,39 @@ class ReadabilityTransformer:
             shutil.copytree(self.model_path, new_checkpoint_path)
             self.model_path = new_checkpoint_path
 
-        if self.model_path:
-            self.setup_load_checkpoint(self.model_path)
+        
+
+    def process_model_path(self, model_path: str):
+        '''
+        model_path can be:
+            1. A folder to a local checkpoint
+            2. A model name that exists in the ReadabilityTransformers system
+            3. A url to a zip file containing a valid ReadabilityTransformers checkpoint.
+        
+        For #2 and #3, we try to save the model to ~/.cache/readability-transformers/models/
+        '''
+        if os.path.isdir(model_path):
+            return model_path
+        else:
+            if "http" not in model_path:
+                # Maybe it's case 2:
+                local_path = path_to_rt_model_cache(model_path)
+
+                if local_path is not None:
+                    return local_path
+                else:    
+                    url = requests.get(RT_MODEL_LOOKUP + model_path).json()["url"]
+                    if url is not None:
+                        local_path = download_rt_model(url)
+                        return local_path
+                    else:
+                        raise Exception(f"Model does not exist in database or cache: {model_path}")
+            else:
+                # case 3
+                local_path = download_rt_model(url)
+                return local_path
+
+        
 
     def setup_load_checkpoint(self, model_path):
         st_path = os.path.join(model_path, "0_SentenceTransformer")

@@ -12,3 +12,11 @@ Some weights of the model checkpoint at bert-base-uncased were not used when ini
 2021-07-06 22:52:20.194 | INFO     | readability_transformers.models.TwoStepArchitecture:fit:120 - Evaluation Step: 5000 (Epoch 0) epoch train loss avg=0.03497223070329476
 2021-07-06 22:58:02.523 | INFO     | readability_transformers.models.TwoStepArchitecture:fit:138 - Epoch 0 train loss avg=0.03277193065479869
 2021-07-06 23:06:35.262 | INFO     | readability_transformers.models.TwoStepArchitecture:fit:120 - Evaluation Step: 6000 (Epoch 1) epoch train loss avg=0.0048478483199205285
+2021-07-06 23:19:43.588 | INFO     | readability_transformers.models.TwoStepArchitecture:fit:120 - Evaluation Step: 7000 (Epoch 1) epoch train loss avg=0.003899580385828684
+2021-07-06 23:32:46.082 | INFO     | readability_transformers.models.TwoStepArchitecture:fit:120 - Evaluation Step: 8000 (Epoch 1) epoch train loss avg=0.0035329062702310577
+2021-07-06 23:45:49.127 | INFO     | readability_transformers.models.TwoStepArchitecture:fit:120 - Evaluation Step: 9000 (Epoch 1) epoch train loss avg=0.0032988643652070776
+2021-07-06 23:58:55.939 | INFO     | readability_transformers.models.TwoStepArchitecture:fit:120 - Evaluation Step: 10000 (Epoch 1) epoch train loss avg=0.0030825003981941814
+2021-07-07 00:09:09.214 | INFO     | readability_transformers.models.TwoStepArchitecture:fit:138 - Epoch 1 train loss avg=0.0029573524449720326
+2021-07-07 00:13:14.590 | INFO     | readability_transformers.models.TwoStepArchitecture:fit:120 - Evaluation Step: 11000 (Epoch 2) epoch train loss avg=0.004054777959066522
+2021-07-07 00:26:23.693 | INFO     | readability_transformers.models.TwoStepArchitecture:fit:120 - Evaluation Step: 12000 (Epoch 2) epoch train loss avg=0.002756002025208939
+2021-07-07 00:39:31.995 | INFO     | readability_transformers.models.TwoStepArchitecture:fit:120 - Evaluation Step: 13000 (Epoch 2) epoch train loss avg=0.0024148996441408417

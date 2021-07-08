@@ -1,5 +1,6 @@
 import os
 import shutil
+import argparse
 import pandas as pd
 import torch
 from torch import nn
@@ -15,13 +16,11 @@ from readability_transformers.features import LingFeatExtractor
 
 from readability_transformers.losses import DenormRMSELoss, RankingMSELoss, WeightedRankingMSELoss
 
-base_model = "bert-base-uncased"
 sample_k = 50
 evaluation_steps = 1000
 epochs = 4
 max_seq_length = 256
 out_features = 256
-device = "cuda:0"
 double = True
 lr=1e-5 # @!IMPORTANT lr=4e-5 led to the model outputting only 0s.
 weight_decay=1e-8
@@ -199,9 +198,24 @@ def rp_train(model, output_path):
         gradient_accumulation=rp_options.gradient_accumulation
     )
 
+    
+import argparse
+parser = argparse.ArgumentParser()
 
-no_twostep_path = "checkpoints/ablations/eval_twostep/pred_twostep"
-output_path = os.path.join(no_twostep_path, f"pred_twostep_{2}")
+parser.add_argument('--count', default=2, help='count')
+parser.add_argument('--device', default="cuda:0")
+parser.add_argument('--base-model', default="bert-base-uncased")
+
+args = parser.parse_args()
+
+no_twostep_path = "checkpoints/eval_twostep/pred_twostep"
+
+count = args.count
+device = args.device
+base_model = args.base_model
+
+output_path = os.path.join(no_twostep_path, f"{base_model.replace('-', '_')}_twostep_{count}")
+
 os.mkdir(output_path)
 
 pred_twostep_train(output_path)

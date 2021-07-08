@@ -41,7 +41,9 @@ class LingFeatExtractor(FeatureBase):
         renamed = dict()
         for key in features.keys():
             renamed["lf_"+key] = features[key]
-            
+        
+        renamed["lf_manual_num_chars"] = len(text)
+        renamed["lf_manual_num_words"] = len(text.split(" "))
         return renamed
 
         

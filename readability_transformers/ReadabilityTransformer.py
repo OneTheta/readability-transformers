@@ -31,7 +31,7 @@ from tqdm.autonotebook import trange
 from sentence_transformers import SentenceTransformer, models, losses, evaluation
 
 from .readers import PairwiseDataReader, PredictionDataReader
-from .models import Prediction, FCPrediction, TwoStepArchitecture, TwoStepFCPrediction, TwoStepTRFPrediction
+from .models import Prediction, FCPrediction, ResFCPrediction, TwoStepArchitecture, TwoStepFCPrediction, TwoStepTRFPrediction
 from .features import FeatureBase
 from .file_utils import load_from_cache_pickle, save_to_cache_pickle, path_to_rt_model_cache, download_rt_model
 
@@ -102,13 +102,16 @@ class ReadabilityTransformer:
                 if local_path is not None:
                     return local_path
                 else:    
-                    url = requests.get(RT_MODEL_LOOKUP + model_path).json()["url"]
-                    if url is not None:
-                        local_path = download_rt_model(url)
-                        return local_path
-                    else:
+                    try:
+                        url = requests.get(RT_MODEL_LOOKUP + model_path).json()["url"]
+                        if url is not None:
+                            local_path = download_rt_model(url)
+                            return local_path
+                        else:
+                            raise Exception(f"Model does not exist in database or cache: {model_path}")
+                    except:
                         raise Exception(f"Model does not exist in database or cache: {model_path}")
-            else:
+            else:       
                 # case 3
                 local_path = download_rt_model(url)
                 return local_path
@@ -256,6 +259,8 @@ class ReadabilityTransformer:
         rp_model_name: str = None, 
         embedding_size: int = None,
         n_layers: int = None,
+        h_size: int = 256,
+        dropout: int = 0.1
     ):
 
         if self.st_model is None:
@@ -279,11 +284,11 @@ class ReadabilityTransformer:
             
             input_size = feature_count + embedding_size
             if rp_model_name == "fully-connected":
-                rp_class = FCPrediction
+                rp_model = FCPrediction(input_size, n_layers, h_size, double=self.double)
+            elif rp_model_name == "res-drop-fully-connected":
+                rp_model = ResFCPrediction(input_size, n_layers, h_size, dropout=dropout, double=self.double)
             else:
                 raise Exception(f"Could not find ReadabilityPrediction model {rp_model_name}")
-
-            rp_model = rp_class(input_size, n_layers, h_size=256, double=self.double)
 
         self.rp_model = rp_model.to(self.device)
         self.rp_model.features_in_order = features

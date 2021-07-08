@@ -1,4 +1,5 @@
 checkpoints/
+__pycache__/
 .nfs*
 # Distribution / packaging
 .Python
@@ -18,3 +19,4 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
+nohup.out

@@ -191,6 +191,82 @@ class Prediction(nn.Module):
 
 
 
+class ResFCPrediction(Prediction):
+    def __init__(self, input_size: int, n_layers: int, h_size: int, dropout: int, double: bool):
+        """PREDICTION_MODEL_1: Fully-Connected NN. 
+        This is MODEL_1 of the list of possible tail-end models for the ReadabilityTransformer,
+        where it predicts the Readability score given the features extracted and the embedding from the SentenceTransformer.
+
+        Args:
+            input_size (int): # of values per one row of data.
+            n_layers (int): number of layers for the fully connected NN.
+            h_size (int): Size of hidden layer
+        """
+        super().__init__(input_size, double)
+            
+        if self.double:
+            torch.set_default_dtype(torch.float64)
+        else:
+            torch.set_default_dtype(torch.float32)
+
+        self.input_size = input_size
+        self.n_layers = n_layers
+        self.dropout = dropout
+
+        self.norm_1 = nn.LayerNorm(input_size)
+        self.fc_1 = nn.Linear(input_size, h_size, bias=True)
+        self.af_1 = nn.ReLU()
+
+        for n in range(2, self.n_layers):
+            fc_layer_name = f"fc_{n}"
+            af_name = f"af_{n}"
+            norm= f"norm_{n}"
+            drop = f"dropout_{n}"
+            setattr(self,norm, nn.LayerNorm(h_size))
+            setattr(self, fc_layer_name, nn.Linear(h_size, h_size, bias=True))
+            setattr(self, af_name, nn.ReLU())
+            setattr(self, drop, nn.Dropout(dropout))
+        self.norm_last = nn.LayerNorm(h_size)
+        self.fc_last = nn.Linear(h_size, 1, bias=True)
+        self.af_last = nn.ReLU()
+
+
+    def forward(self, x):
+        assert x.size(1) == self.input_size
+        
+        if self.double:
+            x = x.type(torch.float64)
+        else:
+            x = x.type(torch.float32)
+
+        x = self.norm_1(x)
+        x = self.fc_1(x)
+        x = self.af_1(x)
+
+        for n in list(range(2, self.n_layers)):
+            norm = getattr(self, f"norm_{n}")
+            layer = getattr(self, f"fc_{n}")
+            af = getattr(self, f"af_{n}")
+            drop = getattr(self, f"dropout_{n}")
+            
+            x = norm(x)
+            x = x + af(drop(layer(x)))
+           
+        x = self.norm_last(x)
+        x = self.fc_last(x)
+        x = self.af_last(x)
+        x = torch.squeeze(x, dim=-1)
+        return x
+
+    def config(self):
+        return {
+            "input_size": self.input_size,
+            "n_layers": self.n_layers,
+            "dropout": self.dropout,
+
+        }
+
+
 
 class FCPrediction(Prediction):
     def __init__(self, input_size: int, n_layers: int, h_size: int, double: bool):

@@ -1,0 +1,2 @@
+recursive-include features/lf/AdvancedSemantic/model *
+recursive-include features/lf/LexicoSemantic/resources *

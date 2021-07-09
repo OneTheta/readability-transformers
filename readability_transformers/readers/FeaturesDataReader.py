@@ -12,6 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""
+FeaturesDataReader is basically PredictionDataReader without the sentence embeddings.
+The idea is to only relay these raw features and text without any neural features,
+to be used for the full pass through ReadabilityTransformers.fit().
+
+In contrast, PredictionDataReader was for rp_model.fit() and it served that
+purpose by having the sentence embeddings be part of the dataset, since rp_model.fit()
+only trains the prediction layer, separate from the transformer neural features.
+"""
+
 import torch
 import numpy as np
 import pandas as pd
@@ -19,7 +29,7 @@ from typing import List
 from readability_transformers.readers import DataReader
 from torch.utils.data import Dataset, DataLoader
 
-class PredictionDataset(Dataset):
+class FeaturesDataset(Dataset):
     def __init__(self, inputs, targets, standard_err=None, data_ids=None):
         self.inputs = inputs
         self.targets = targets
@@ -41,11 +51,10 @@ class PredictionDataset(Dataset):
             return_dict["data_ids"] = self.data_ids[idx]
         return return_dict
 
-class PredictionDataReader(DataReader):
+class FeaturesDataReader(DataReader):
     def __init__(
         self, 
         feature_df: pd.DataFrame, 
-        embedding_matrix: np.ndarray, 
         features: List[str], 
         text_column: str = "excerpt",
         target_column: str = "target",
@@ -61,53 +70,48 @@ class PredictionDataReader(DataReader):
             features (List[str]): list of features in order to pull from df
             no_targets (bool): for inference, we don't have a targets column. defaults to True.
         """
-        super(PredictionDataReader, self).__init__()
+        super(FeaturesDataReader, self).__init__()
         self.standard_err = None
         self.targets = None
-
-        if len(feature_df) != embedding_matrix.shape[0]:
-            raise Exception("The feature dataframe and the embedding matrix are not of the same shape.")
         
         if "standard_error" in feature_df.columns.values:
             self.standard_err = feature_df["standard_error"].values
-
 
         if not no_targets:
             if "target" not in feature_df.columns.values:
                 raise Exception("Target column not found. If this is for inference, use no_targets=True.")
             self.targets = feature_df["target"].values
      
+        
         self.features = features
         self.data_ids = feature_df["id"].values
         self.inputs_features = feature_df[self.features].values
-        self.inputs_embeddings = embedding_matrix
 
         if not double: # since by default the above values are float64/double.
             print("NOT DOUBLE")
             self.inputs_features = self.inputs_features.astype(np.float32)
-            self.inputs_embeddings = self.inputs_embeddings.astype(np.float32)
             self.standard_err = self.standard_err.astype(np.float32)
             self.targets = self.targets.astype(np.float32)
 
-        """
-        let N = # of rows, E = embedding size., F = # of features
-        inputs_embeddiing.size() == (N, E)
-        inputs_features.size() == (N, F)
-            => inputs.size() == (N, E+F)
-        """
+
         N = len(feature_df)
-        E = len(self.inputs_embeddings[0])
         F = len(self.inputs_features[0])
         
         torch_dtype = torch.double if double else torch.float32
         self.inputs_features = torch.tensor(self.inputs_features, dtype=torch_dtype)
-        self.inputs_embeddings = torch.tensor(self.inputs_embeddings, dtype=torch_dtype)
-
+        self.texts = feature_df[text_column].values
+        # What was i thinking here?? inputs_features is supposed to come in ALREADY normalized with special configurations.
         # self.inputs_features = (self.inputs_features - self.inputs_features.min()) / (self.inputs_features.max() - self.inputs_features.min()) # normalize data
-        self.inputs = torch.cat((self.inputs_features, self.inputs_embeddings), axis=-1)
-        assert self.inputs.size() == (N, E+F)
+        self.inputs = []
+        for (passage, extracted_features) in zip(self.texts, self.inputs_features):
+            one_input = {
+                "text": passage,
+                "features": extracted_features
+            }
+            self.inputs.append(one_input)
+    
 
-        self.dataset = PredictionDataset(self.inputs, self.targets, self.standard_err, self.data_ids)
+        self.dataset = FeaturesDataset(self.inputs, self.targets, self.standard_err, self.data_ids)
     
     def get_input_features_in_order(self):
         return self.input_feature_names

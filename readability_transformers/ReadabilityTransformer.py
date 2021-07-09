@@ -22,7 +22,9 @@ from typing import List, Union
 import numpy as np
 import pandas as pd
 import torch
-from torch import nn
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
 from loguru import logger
 from tqdm import tqdm
 from tqdm.autonotebook import trange
@@ -30,7 +32,7 @@ from tqdm.autonotebook import trange
 
 from sentence_transformers import SentenceTransformer, models, losses, evaluation
 
-from .readers import PairwiseDataReader, PredictionDataReader
+from .readers import PairwiseDataReader, PredictionDataReader, FeaturesDataReader
 from .models import Prediction, FCPrediction, ResFCPrediction, TwoStepArchitecture, TwoStepFCPrediction, TwoStepTRFPrediction
 from .features import FeatureBase
 from .file_utils import load_from_cache_pickle, save_to_cache_pickle, path_to_rt_model_cache, download_rt_model
@@ -39,7 +41,7 @@ from .file_utils import load_from_cache_pickle, save_to_cache_pickle, path_to_rt
 CACHE_DIR = os.path.expanduser("~/.cache/readability-transformers/data")
 RT_MODEL_LOOKUP = "http://readability.1theta.com/models/"
 
-class ReadabilityTransformer:
+class ReadabilityTransformer(nn.Module):
     def __init__(
         self,
         model_name: str,
@@ -61,6 +63,8 @@ class ReadabilityTransformer:
                 directory, which will be our new working directory.
             double (bool): Whether this model should use weights that are float32 or float64. 
         '''
+        super(ReadabilityTransformer, self).__init__()
+
         self.model_name = model_name
         self.device = device
         self.double = double
@@ -416,9 +420,6 @@ class ReadabilityTransformer:
                 **kwargs
             )
 
-
-
-
     def get_config(self):
         """Get the parameters we want to re-load when reloading this RT model.
         """
@@ -436,13 +437,162 @@ class ReadabilityTransformer:
 
 
         return config
+    
+    def fit(
+        self,
+        train_reader: FeaturesDataReader,
+        valid_reader: FeaturesDataReader,
+        train_metric: torch.nn.Module,
+        evaluation_metrics: List[torch.nn.Module],
+        batch_size: int,
+        epochs: int,
+        lr: float,
+        weight_decay: float,
+        output_path: str,
+        evaluation_steps: int,
+        save_best_model: bool,
+        show_progress_bar: bool,
+        gradient_accumulation: int,
+        device: str
+    ):
+        """
+        One way to train the ReadabilityTransformers is by doing st_fit() then rp_fit(), where these are trained
+        separately. Another way is through this fit() method, which trains this entire architecture end-to-end,
+        from the SentenceTransformer to the final regression prediction.
+        """
+        logger.add(os.path.join(output_path, "log.out"))
+        self.device = device
+        self.to(self.device)
+        config = self.get_config()
+        if evaluation_steps % gradient_accumulation != 0:
+            logger.warning("Evaluation steps is not a multiple of gradient_accumulation. This may lead to perserve interpretation of evaluations.")
+        
+        # 1. Set up training
+        train_loader = train_reader.get_dataloader(batch_size=batch_size)
+        valid_loader = valid_reader.get_dataloader(batch_size=batch_size)
+
+
+        optimizer = optim.Adam(self.parameters(), lr=lr, weight_decay=weight_decay)
+        self.best_loss = 9999999
+        self.train()
+        training_steps = 0
+
+        for epoch in trange(epochs, desc="Epoch", disable=not show_progress_bar):
+            epoch_train_loss = []
+            for batch_idx, batch in enumerate(tqdm(train_loader, desc="Iteration", smoothing=0.05, disable=not show_progress_bar)):
+                training_steps += 1
+
+                inputs = batch["inputs"]
+                passage_inputs = inputs["text"]
+                feature_inputs = inputs["features"].to(self.device)
+
+                targets = batch["target"].to(self.device)
+
+                predicted_scores = self.forward(passage_inputs, feature_inputs)
+
+                if "standard_err" in batch.keys():
+                    standard_err = batch["standard_err"].to(self.device)
+                    loss = train_metric(predicted_scores, targets, standard_err) / gradient_accumulation
+                else:
+                    loss = train_metric(predicted_scores, targets) / gradient_accumulation
+                # loss = 4.0*loss
+                loss.backward()
+                epoch_train_loss.append(loss.item() * gradient_accumulation) 
+            
+            
+                if (training_steps - 1) % gradient_accumulation == 0 or training_steps == len(train_loader):
+                    torch.nn.utils.clip_grad_value_(self.parameters(), 1.)
+                    
+                    optimizer.step()
+                    optimizer.zero_grad()
+                
+                if training_steps % evaluation_steps == 0:
+                    logger.info(f"Evaluation Step: {training_steps} (Epoch {epoch}) epoch train loss avg={np.mean(epoch_train_loss)}")
+                    self._eval_during_training(
+                        valid_loader=valid_loader,
+                        evaluation_metrics=evaluation_metrics,
+                        output_path=output_path,
+                        save_best_model=save_best_model,
+                        current_step=training_steps,
+                        config=config
+                    )
+       
+            logger.info(f"Epoch {epoch} train loss avg={np.mean(epoch_train_loss)}")
+            epoch_train_loss = []
+            # One epoch done.
+            self._eval_during_training(
+                valid_loader=valid_loader,
+                evaluation_metrics=evaluation_metrics,
+                output_path=output_path,
+                save_best_model=save_best_model,
+                current_step=training_steps,
+                config=config
+            )
+    
+    def _eval_during_training(
+        self, 
+        valid_loader: torch.utils.data.DataLoader,
+        evaluation_metrics: List[torch.nn.Module],
+        output_path: str, 
+        save_best_model: bool,
+        current_step: int,
+        config: dict
+    ):
+        with torch.no_grad():
+            losses = dict()
+            for eval_metric in evaluation_metrics:
+                eval_metric_name = eval_metric.__class__.__name__
+                losses[eval_metric_name] = []
+            for batch_idx, batch in enumerate(valid_loader):
+                inputs = batch["inputs"]
+                passage_inputs = inputs["text"]
+                feature_inputs = inputs["features"].to(self.device)
+
+                targets = batch["target"].to(self.device)
+
+                predicted_scores = self.forward(passage_inputs, feature_inputs)
+
+                for eval_metric in evaluation_metrics:
+                    eval_metric_name = eval_metric.__class__.__name__
+                    loss = eval_metric(predicted_scores, targets)
+                    losses[eval_metric_name].append(loss.item())
+
+        sum_loss = 0
+        for losskey in losses.keys():
+            mean = np.mean(losses[losskey])
+            losses[losskey] = mean
+            sum_loss += mean
+        losses["mean"] = sum_loss / len(losses.keys())
+            
+        df = pd.DataFrame([losses])
+        df.index = [current_step]
+        csv_path = os.path.join(output_path, "evaluation_results.csv" )
+        df.to_csv(csv_path, mode="a", header=(not os.path.isfile(csv_path)), columns=losses.keys()) # append to current fike.
+        
+        if save_best_model:
+            if sum_loss < self.best_loss:
+                self.save(output_path, config)
+                self.best_loss = sum_loss
+
+    
+    def save(self, path, config):
+        if path is None:
+            return
+
+        logger.info("Saving model to {}".format(path))
+        logger.info("Saving to 0_SentenceTransformers...")
+        self.st_model.save(os.path.join(path, "0_SentenceTransformer"))
+        logger.info("Saving to 1_Prediction...")
+        self.rp_model.save(os.path.join(path, "1_Prediction"), self.get_config())
+
+
 
     def forward(self, passages: List[str], features: List[List[Union[float, np.array, torch.Tensor]]]):
         """Forward pass of the model with gradients whose outputs you can train with a loss function backwards pass.
         No normalization/denormalization efforts are done. This is a pure full RT model pass.
 
         Args:
-            passages: text passages to derive readability score predictiosn from.
+            passages: text passages to derive readability score predictions from.
             features: each element in the features parameters is an array of feature values for corresponding
                 passage in passages.
         """
@@ -450,20 +600,20 @@ class ReadabilityTransformer:
         assert len(features) == len(passages)
         if not isinstance(features, torch.Tensor):
             features = torch.tensor(features, dtype=torch.double if self.double else torch.float32).to(self.device)
+        features.to(self.device)
         """
         1. Get forward pass from st_model. This code is based on UKPLab/sentence-transformers.
         """
 
         self.st_model.to(self.device)
+        self.rp_model.to(self.device)
 
         text_features = self.st_model.tokenize(passages)
         for key in text_features:
             text_features[key] = text_features[key].to(self.device)
         
         out_features = self.st_model(text_features)
-        embeddings = out_features["sentence_embedding"]
-        
-            
+        embeddings = out_features["sentence_embedding"].to(self.device)
         """
         2. model_inputs = concat(feature_array, embeddings)
         """
@@ -478,7 +628,6 @@ class ReadabilityTransformer:
         4. Predict
         """
  
-        self.rp_model.to(self.device)
 
         predicted_scores = self.rp_model(rp_inputs)
         return predicted_scores
@@ -496,6 +645,7 @@ class ReadabilityTransformer:
         """
         1. Sentences -> Lingfeat features
         """
+
         if self.rp_model is None or self.st_model is None:
             raise Exception("Cannot make predictions without both the SentenceTransformer model and the Prediction model loaded.")
         
@@ -650,6 +800,7 @@ class ReadabilityTransformer:
         # obviously if cache == False then remaining == full requested df_list
 
         for remain_id, remain_data in zip(remaining_ids, remaining):
+            logger.info(f"Extracting features for cache_id={remain_id}")
             for idx, row in tqdm(remain_data.iterrows(), total=len(remain_data)):
                 text = row[text_column] # refer to docstring
                 text_features = dict()
@@ -698,8 +849,8 @@ class ReadabilityTransformer:
                 fmax = max(self.feature_maxes[feature])
                 fmin = min(self.feature_mins[feature])
                 if feature == target_column: # to avoid 0.00 and 1.00 values for target & room for extra space at inference time.
-                    fmax = fmax + 0.02
-                    fmin = fmin - 0.02
+                    fmax = fmax + 0.04
+                    fmin = fmin - 0.04
                 self.feature_maxes[feature] = fmax
                 self.feature_mins[feature] = fmin
 
@@ -782,4 +933,13 @@ class ReadabilityTransformer:
     def get_embedding_size(self, embedding: np.ndarray = None) -> int:
         if embedding is not None:
             return embedding.shape[-1]
-        return self.embedding_size
+        if hasattr(self, "embedding_size"):
+            return self.embedding_size
+        else:
+            try:
+                dims = self.st_model.get_sentence_embedding_dimension()
+                if dims is not None:
+                    return dims
+            except:
+                pass
+        raise Exception("Can't get embedding size without having loaded an st_model corresponding to it.")

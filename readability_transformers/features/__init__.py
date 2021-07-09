@@ -15,3 +15,4 @@
 from .FeatureBase import FeatureBase, CustomFeatureExtractor
 from .TRUNAJOD import TRUNAJODExtractor
 from .LingFeat import LingFeatExtractor
+from .TransformersLogits import TransformersLogitsExtractor

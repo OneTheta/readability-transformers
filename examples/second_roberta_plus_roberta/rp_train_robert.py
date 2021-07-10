@@ -26,13 +26,13 @@ def rp_train(model, output_path, device, n_layers=7, weighted_mse_min_weight=0.7
     rp_options = {
         "model_path": output_path,
         "n_layers": n_layers,
-        "ratios": (0.92, 0.08, 0.0),
-        "ratio_cache_labels": ("train", "valid", "test"),
+        "ratios": (0.92, 0.08),
+        "ratio_cache_labels": ("train_new_k", "valid_new_k"),
         "device": device,
         "st_embed_batch_size": 32,
         "weighted_mse_min_weight": weighted_mse_min_weight,
         "batch_size": 64,
-        "epochs": 1600,
+        "epochs": 2000,
         "lr": lr,
         "weight_decay": weight_decay,
         "evaluation_steps": 5000,
@@ -46,14 +46,15 @@ def rp_train(model, output_path, device, n_layers=7, weighted_mse_min_weight=0.7
     trf = TransformersLogitsExtractor(device=device)
 
     commonlit_data = CommonLitDataset("train")
-    train_df, valid_df, _ = commonlit_data.split_train_valid_test(ratios=rp_options.ratios, ratio_cache_labels=rp_options.ratio_cache_labels)
+    train_df, valid_df = commonlit_data.split_train_valid_test(ratios=rp_options.ratios, ratio_cache_labels=rp_options.ratio_cache_labels)
 
     train_df, valid_df = model.pre_apply_features(
         df_list=[train_df, valid_df], 
         feature_extractors=[lf, trf],
+        batch_size=20,
         text_column="excerpt",
         cache=True,
-        cache_ids=["train_lf_trf", "valid_lf_trf"],
+        cache_ids=["train_v1.5_lf_trf_full", "valid_v1.5_lf_trf_full"],
         normalize=True,
         extra_normalize_columns=["target"]
     )
@@ -113,7 +114,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--count', default=2, help='count', type=int)
     parser.add_argument('--device', default="cuda:0")
-    parser.add_argument('--n_layers', default=7, type=int)
+    parser.add_argument('--n_layers', default=3, type=int)
     parser.add_argument('--weighted_mse_min_weight', default=0.7, type=float)
     parser.add_argument('--lr', default=5e-6, type=float)
     parser.add_argument('--weight_decay', default=0.01, type=float)
@@ -127,7 +128,7 @@ if __name__ == "__main__":
     device = args.device
     double = True
 
-    output_path = os.path.join(ablation_path, f"prediction_{count}")
+    output_path = os.path.join(ablation_path, f"prediction_{count+1}")
     os.mkdir(output_path)
 
    

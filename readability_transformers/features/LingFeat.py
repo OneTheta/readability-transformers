@@ -46,5 +46,11 @@ class LingFeatExtractor(FeatureBase):
         renamed["lf_manual_num_words"] = len(text.split(" "))
         return renamed
 
+    def extract_in_batches(self, texts: List[str]) -> List[dict]:
+        features_collect = []
+        for text in texts:
+            feature_dict = self.extract(text)
+            features_collect.append(feature_dict)
+        return features_collect
         
         

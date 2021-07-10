@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import pandas as pd
-from typing import List
+from typing import List, Union
 from loguru import logger
 
 from readability_transformers.file_utils import CachedDataset
@@ -49,5 +49,21 @@ class CommonLitDataset(Dataset):
         self.data = pd.read_csv(data_url)
 
         for idx, row in self.data.iterrows():
-            self.data.loc[idx, "excerpt"] = row["excerpt"].replace("\n", " ").replace("\t", " ").replace("  ", " ")
+            self.data.loc[idx, "excerpt"] = self.basic_preprocess_text(row["excerpt"])
     
+    def basic_preprocess_text(self, text_input: Union[str, List[str]]) -> str:
+        text = text_input
+        if isinstance(text_input, str):
+            text = [text_input]
+
+        collect = []
+        for one_text in text:
+            one_text = one_text.replace("\n", " ").replace("\t", " ").replace("  ", " ")
+            one_text = one_text.replace("‘", "'").replace(" – ","—")
+            one_text = one_text.strip()
+            collect.append(one_text)
+        
+        if isinstance(text_input, str):
+            return collect[0]
+        else:
+            return collect

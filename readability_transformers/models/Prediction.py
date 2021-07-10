@@ -122,6 +122,7 @@ class Prediction(nn.Module):
                         current_step=training_steps,
                         config=config
                     )
+                    self.train()
        
             logger.info(f"Epoch {epoch} train loss avg={np.mean(epoch_train_loss)}")
             epoch_train_loss = []
@@ -134,6 +135,7 @@ class Prediction(nn.Module):
                 current_step=training_steps,
                 config=config
             )
+            self.train()
 
     def _eval_during_training(
         self, 
@@ -144,20 +146,31 @@ class Prediction(nn.Module):
         current_step: int,
         config: dict
     ):
+        self.eval()
         with torch.no_grad():
             losses = dict()
             for eval_metric in evaluation_metrics:
                 eval_metric_name = eval_metric.__class__.__name__
                 losses[eval_metric_name] = []
+
+            targets_collect = []
+            predictions_collect = []
             for batch_idx, batch in enumerate(valid_loader):
                 inputs = batch["inputs"].to(self.device)
                 targets = batch["target"].to(self.device)
                 predicted_scores = self.forward(inputs)
 
-                for eval_metric in evaluation_metrics:
-                    eval_metric_name = eval_metric.__class__.__name__
-                    loss = eval_metric(predicted_scores, targets)
-                    losses[eval_metric_name].append(loss.item())
+                targets_collect.append(targets)
+                predictions_collect.append(predicted_scores)
+            
+            targets_full = torch.stack(targets_collect[:-1], dim=0).flatten(end_dim=1)
+            targets_full = torch.cat((targets_full, targets_collect[-1]), dim=0)
+            predictions_full = torch.stack(predictions_collect[:-1], dim=0).flatten(end_dim=1)
+            predictions_full = torch.cat((predictions_full, predictions_collect[-1]), dim=0) # because last batch may not be full
+            for eval_metric in evaluation_metrics:
+                eval_metric_name = eval_metric.__class__.__name__
+                loss = eval_metric(predictions_full, targets_full)
+                losses[eval_metric_name].append(loss.item())
 
         sum_loss = 0
         for losskey in losses.keys():
@@ -175,6 +188,8 @@ class Prediction(nn.Module):
             if sum_loss < self.best_loss:
                 self.save(output_path, config)
                 self.best_loss = sum_loss
+
+        self.train()
 
     
     def save(self, path, config):

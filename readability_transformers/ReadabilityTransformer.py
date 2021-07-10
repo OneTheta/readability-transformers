@@ -423,10 +423,18 @@ class ReadabilityTransformer(nn.Module):
     def get_config(self):
         """Get the parameters we want to re-load when reloading this RT model.
         """
+        feature_extractors = []
+        for feature_extractor in self.feature_extractors:
+            if hasattr(feature_extractor, "trf_model"):
+                del feature_extractor.trf_model
+            if hasattr(feature_extractor, "tokenizer"):
+                del feature_extractor.tokenizer
+            feature_extractors.append(feature_extractor)
+
         config = {
             "normalize": self.normalize,
             "features": self.features,
-            "feature_extractors": self.feature_extractors,
+            "feature_extractors": feature_extractors,
             "blacklist_features": self.blacklist_features
         }
         if self.normalize:
@@ -463,6 +471,7 @@ class ReadabilityTransformer(nn.Module):
         logger.add(os.path.join(output_path, "log.out"))
         self.device = device
         self.to(self.device)
+        self.train()
         config = self.get_config()
         if evaluation_steps % gradient_accumulation != 0:
             logger.warning("Evaluation steps is not a multiple of gradient_accumulation. This may lead to perserve interpretation of evaluations.")
@@ -474,7 +483,7 @@ class ReadabilityTransformer(nn.Module):
 
         optimizer = optim.Adam(self.parameters(), lr=lr, weight_decay=weight_decay)
         self.best_loss = 9999999
-        self.train()
+        
         training_steps = 0
 
         for epoch in trange(epochs, desc="Epoch", disable=not show_progress_bar):
@@ -538,24 +547,37 @@ class ReadabilityTransformer(nn.Module):
         current_step: int,
         config: dict
     ):
+        self.eval()
+        self.st_model.eval()
+        self.rp_model.eval()
+
+        targets_collect = []
+        predictions_collect = []
         with torch.no_grad():
             losses = dict()
             for eval_metric in evaluation_metrics:
                 eval_metric_name = eval_metric.__class__.__name__
                 losses[eval_metric_name] = []
+
             for batch_idx, batch in enumerate(valid_loader):
                 inputs = batch["inputs"]
                 passage_inputs = inputs["text"]
                 feature_inputs = inputs["features"].to(self.device)
 
                 targets = batch["target"].to(self.device)
-
                 predicted_scores = self.forward(passage_inputs, feature_inputs)
 
-                for eval_metric in evaluation_metrics:
-                    eval_metric_name = eval_metric.__class__.__name__
-                    loss = eval_metric(predicted_scores, targets)
-                    losses[eval_metric_name].append(loss.item())
+                targets_collect.append(targets)
+                predictions_collect.append(predicted_scores)
+
+        targets_full = torch.stack(targets_collect[:-1], dim=0).flatten(end_dim=1)
+        targets_full = torch.cat((targets_full, targets_collect[-1]), dim=0)
+        predictions_full = torch.stack(predictions_collect[:-1], dim=0).flatten(end_dim=1)
+        predictions_full = torch.cat((predictions_full, predictions_collect[-1]), dim=0) # because last batch may not be full
+        for eval_metric in evaluation_metrics:
+            eval_metric_name = eval_metric.__class__.__name__
+            loss = eval_metric(predictions_full, targets_full)
+            losses[eval_metric_name].append(loss.item())
 
         sum_loss = 0
         for losskey in losses.keys():
@@ -573,6 +595,10 @@ class ReadabilityTransformer(nn.Module):
             if sum_loss < self.best_loss:
                 self.save(output_path, config)
                 self.best_loss = sum_loss
+        
+        self.train()
+        self.st_model.train()
+        self.rp_model.train()
 
     
     def save(self, path, config):
@@ -605,8 +631,7 @@ class ReadabilityTransformer(nn.Module):
         1. Get forward pass from st_model. This code is based on UKPLab/sentence-transformers.
         """
 
-        self.st_model.to(self.device)
-        self.rp_model.to(self.device)
+        
 
         text_features = self.st_model.tokenize(passages)
         for key in text_features:
@@ -641,11 +666,17 @@ class ReadabilityTransformer(nn.Module):
             passages (List[str]): list of texts to predict readability scores on.
             batch_size (int): batch_size to pass the input data through the model.
         """
+        passages = self.basic_preprocess_text(passages)
+        self.to(self.device)
+        self.st_model.to(self.device)
+        self.rp_model.to(self.device)
+        self.eval()
+        self.st_model.eval()
+        self.rp_model.eval()
         
         """
         1. Sentences -> Lingfeat features
         """
-
         if self.rp_model is None or self.st_model is None:
             raise Exception("Cannot make predictions without both the SentenceTransformer model and the Prediction model loaded.")
         
@@ -661,14 +692,28 @@ class ReadabilityTransformer(nn.Module):
             denormalize = lambda value, max_val, min_val: (value * (max_val - min_val)) + min_val
 
         feature_dict_array = []
-        for one_passage in passages:
-            passage_features = dict()
-            for one_extractor in self.feature_extractors:
-                one_extraction = one_extractor.extract(one_passage)
-                for key in one_extraction.keys():
-                    passage_features["feature_"+key] = one_extraction[key]
-            feature_dict_array.append(passage_features)
+        for batch_idx in range(len(passages) // batch_size + 1):
+            if batch_idx * batch_size == len(passages):
+                break
+            one_batch = passages[batch_idx*batch_size : (batch_idx + 1)*batch_size]
+
+            feature_dict_list_collect = []
+            for one_extractor in feature_extractors:
+                feature_dict_list = one_extractor.extract_in_batches(one_batch)
+                assert len(feature_dict_list) == len(one_batch)
+                feature_dict_list_collect.append(feature_dict_list)
+
+            for passage_idx in range(len(one_batch)):
+                # complete_faetures_per_passage = full feature dictionary corresponding for that passage 
+                # from all the feature extractors
+                complete_features_per_passage = dict()
+                for feature_dict_list in feature_dict_list_collect:
+                    passage_feature_dict = feature_dict_list[passage_idx]
+                    for key in passage_feature_dict.keys():
+                        complete_features_per_passage["feature_"+key]  = passage_feature_dict[key]
+                feature_dict_array.append(complete_features_per_passage)
             
+
         feature_matrix = []
         for passage_idx, feat_dict in enumerate(feature_dict_array):
             passage_feature_num_array = []
@@ -685,37 +730,28 @@ class ReadabilityTransformer(nn.Module):
         assert len(feature_matrix[0]) == len(self.features)
 
         predictions_collect = []
+        
+        
+        
         with torch.no_grad():
             batch_size = batch_size
             n_batches = len(passages) // batch_size
 
-            for full_batch_idx in range(n_batches):
+            for full_batch_idx in range(len(passages) // batch_size + 1):
+                if (full_batch_idx * batch_size == len(passages)):
+                    break
                 start_idx = full_batch_idx * batch_size
                 end_idx = (full_batch_idx + 1) * batch_size
 
                 passage_batch = passages[start_idx : end_idx]
                 feature_batch = feature_matrix[start_idx : end_idx]
-
-                assert len(passage_batch) == batch_size
-                assert len(feature_batch) == batch_size
                 
                 one_prediction = self.forward(passage_batch, feature_batch)
                 predictions_collect.append(one_prediction)
 
-            predictions = torch.stack(predictions_collect, dim=0).flatten(end_dim=1)
-            if (n_batches * batch_size) < len(passages):
-                # there is extra
-                start_idx = n_batches * batch_size 
+            predictions = torch.stack(predictions_collect[:-1], dim=0).flatten(end_dim=1)
+            predictions = torch.cat((predictions, predictions_collect[-1]), dim=0) # because last batch may not be full
 
-                leftovers_passage = passages[start_idx:]
-                leftovers_features = feature_matrix[start_idx:]
-
-                assert len(leftovers_passage) < batch_size
-                assert len(leftovers_features) < batch_size
-
-                leftovers_predictions = self.forward(leftovers_passage, leftovers_features)
-                predictions = torch.cat((predictions, leftovers_predictions))
-            
 
         """
         5. Denormalize Prediction
@@ -727,10 +763,28 @@ class ReadabilityTransformer(nn.Module):
 
         return predictions
 
+    def basic_preprocess_text(self, text_input: Union[str, List[str]]) -> str:
+        text = text_input
+        if isinstance(text_input, str):
+            text = [text_input]
+
+        collect = []
+        for one_text in text:
+            one_text = one_text.replace("\n", " ").replace("\t", " ").replace("  ", " ")
+            one_text = one_text.replace("‘", "'").replace(" – ","—")
+            one_text = one_text.strip()
+            collect.append(one_text)
+        
+        if isinstance(text_input, str):
+            return collect[0]
+        else:
+            return collect
+
     def pre_apply_features(
         self, 
         df_list: List[pd.DataFrame],
         feature_extractors: List[FeatureBase],
+        batch_size: int = None,
         text_column: str = "excerpt",
         target_column: str = "target",
         cache: bool = False,
@@ -801,15 +855,59 @@ class ReadabilityTransformer(nn.Module):
 
         for remain_id, remain_data in zip(remaining_ids, remaining):
             logger.info(f"Extracting features for cache_id={remain_id}")
-            for idx, row in tqdm(remain_data.iterrows(), total=len(remain_data)):
-                text = row[text_column] # refer to docstring
-                text_features = dict()
-                for one_extractor in feature_extractors:
-                    feature_dict = one_extractor.extract(text)
-                    for feature_key in feature_dict.keys():
-                        value = feature_dict[feature_key]
-                        text_features[feature_key] = feature_dict[feature_key]
-                remain_data.loc[idx, ['feature_' + k for k in text_features.keys()]] = text_features.values()
+
+            if batch_size is not None:
+                # extract in baches
+                text_list = remain_data[text_column].values
+                for batch_idx in trange(len(text_list) // batch_size + 1):
+                    if batch_idx * batch_size == len(text_list):
+                        break
+                    one_batch = list(text_list[batch_idx*batch_size : (batch_idx + 1)*batch_size])
+                
+
+                    feature_dict_list_collect = []
+                    for one_extractor in feature_extractors:
+                        feature_dict_list = one_extractor.extract_in_batches(one_batch)
+                        assert len(feature_dict_list) == len(one_batch)
+                        feature_dict_list_collect.append(feature_dict_list)
+
+                    # feature_dict_list_collect.shape == (#features, #passages)
+                    passages_features = [] # trying to get (#passages, #features)
+                    for passage_idx in range(len(one_batch)):
+                        # complete_faetures_per_passage = full feature dictionary corresponding for that passage 
+                        # from all the feature extractors
+                        complete_features_per_passage = dict()
+                        for feature_dict_list in feature_dict_list_collect:
+                            passage_feature_dict = feature_dict_list[passage_idx]
+                            for key in passage_feature_dict.keys():
+                                complete_features_per_passage[key] = passage_feature_dict[key]
+                        passages_features.append(complete_features_per_passage)
+                        
+                    '''
+                    passages_features = [
+                        {text_1_feature_1, text_1_feature_2, text_1_feature_3, ...},
+                        {text_2_feature_1, text_2_feature_2, text_2_feature_3, ...},
+                        ...
+                    ]
+                    '''
+                    
+                    df_idx_list = remain_data.index[batch_idx*batch_size : (batch_idx + 1) * batch_size]     
+                    text_batch_features = np.array([list(i.values()) for i in passages_features])
+                    feature_names = passages_features[0].keys()
+                    feature_names = ['feature_' + k for k in feature_names]
+                    assert text_batch_features.shape == (len(one_batch), len(feature_names))
+                    assert text_batch_features.shape == (len(df_idx_list), len(feature_names))
+                    remain_data.loc[df_idx_list, feature_names] = text_batch_features
+            
+            else:
+                for idx, row in tqdm(remain_data.iterrows(), total=len(remain_data)):
+                    text = row[text_column] # refer to docstring
+                    text_features = dict()
+                    for one_extractor in feature_extractors:
+                        feature_dict = one_extractor.extract(text)
+                        for feature_key in feature_dict.keys():
+                            text_features[feature_key] = feature_dict[feature_key]
+                    remain_data.loc[idx, ['feature_' + k for k in text_features.keys()]] = text_features.values()
             
             if cache:
                 logger.info(f"Saving '{remain_id}' to cache...")
@@ -845,32 +943,45 @@ class ReadabilityTransformer(nn.Module):
                     self.feature_maxes[feature].append(one_feat_list.max())
                     self.feature_mins[feature].append(one_feat_list.min())
             
+            pre_blacklist_features = []
             for feature in feature_list:
                 fmax = max(self.feature_maxes[feature])
                 fmin = min(self.feature_mins[feature])
-                if feature == target_column: # to avoid 0.00 and 1.00 values for target & room for extra space at inference time.
-                    fmax = fmax + 0.04
-                    fmin = fmin - 0.04
-                self.feature_maxes[feature] = fmax
-                self.feature_mins[feature] = fmin
 
-                for df_idx, df in enumerate(final_list):
-                    final_list[df_idx][feature] = df[feature].apply(lambda x: (x-fmin) / (fmax - fmin))
+                if fmax == fmin:
+                    pre_blacklist_features.append(feature)
+                else:
+                    scalar = (fmax - fmin)
+
+                    fmax = fmax + 0.05*scalar
+                    fmin = fmin - 0.05*scalar
+
+                    # if feature == target_column: # to avoid 0.00 and 1.00 values for target & room for extra space at inference time.
+                    #     fmax = fmax + 0.04
+                    #     fmin = fmin - 0.04
+                    self.feature_maxes[feature] = fmax
+                    self.feature_mins[feature] = fmin
+
+                    for df_idx, df in enumerate(final_list):
+                        final_list[df_idx][feature] = df[feature].apply(lambda x: (x-fmin) / (fmax - fmin))
        
         # fix nan values.
         blacklist_features = []
         for feature in feature_list:
-            for df in final_list:
-                nan_count = df[feature].isnull().sum()
-                na_count = df[feature].isna().sum()
-                
-                if nan_count > 0 or na_count > 0:
-                    blacklist_features.append(feature)
+            if feature in pre_blacklist_features:
+                blacklist_features.append(feature)
+            else:
+                for df in final_list:
+                    nan_count = df[feature].isnull().sum()
+                    na_count = df[feature].isna().sum()
+                    
+                    if nan_count > 0 or na_count > 0:
+                        blacklist_features.append(feature)
 
         logger.info(f"Columns excluded for NaN values (count={len(blacklist_features)}): {blacklist_features}")
         for df_idx, df in enumerate(final_list):
             final_list[df_idx] = df.drop(columns=blacklist_features)
-      
+
         # For code readability's sake, I'm listing all the instance var settings here:
         # when we load the model again, we'll find these values.
         self.normalize = normalize

@@ -42,8 +42,8 @@ class WeightedMSELoss(nn.Module):
 
         super(WeightedMSELoss, self).__init__()
 
-    def forward(self, input_scores, target_scores, standard_error):    
-        weights = (standard_error - self.min_err) / (self.max_err - self.min_err)
+    def forward(self, input_scores, target_scores, standard_errors):    
+        weights = (standard_errors - self.min_err) / (self.max_err - self.min_err)
         weights = weights * (1.0 - self.min_weight)
         weights = weights + self.min_weight
         

@@ -13,3 +13,4 @@
 # limitations under the License.
 
 from .ReadabilityTransformer import ReadabilityTransformer
+from .reset_cache import reset_cache

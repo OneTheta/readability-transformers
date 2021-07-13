@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import re
 import pandas as pd
 from typing import List, Union
 from loguru import logger
@@ -19,21 +19,18 @@ from loguru import logger
 from readability_transformers.file_utils import CachedDataset
 from readability_transformers.dataset import Dataset
 
-DATASET_ID = "commonlit"
-DATASET_ZIP_URL = 'https://1theta-readability-transformers.s3.us-east-2.amazonaws.com/commonlit.tar.gz'
+DATASET_ID = "cefr_basic"
+DATASET_ZIP_URL = 'https://1theta-readability-transformers.s3.us-east-2.amazonaws.com/basic_proprocessed_cefr.zip'
 DATAFILES_META = {
-    "train": "data/train.csv",
-    "test": "data/test.csv",
-    "sample": "data/sample_submission.csv"
+    "train": "basic_proprocessed_cefr.csv"
 }
 
-class CommonLitDataset(Dataset):
+class CEFRDataset(Dataset):
     def __init__(self, label: str):
-        """Loads the CommonLit dataset.
+        """Loads the CEFR-Basic dataset.
 
         Args:
-            label (str): CommonLit dataset consists of the "train" dataset and the 
-                         "test" dataset used for Kaggle evaluation. 
+            label (str): CEFR Dataset only has "train" label.
             cache (bool): if set to True, caches the train-valid-test split when called. Usually we train the
                 SentenceTransformer first then train the ReadabilityPrediction model. We usually want to use
                 the same splitted train-valid-test throughout the whole process (unless doing some sort of ablation component study).
@@ -49,8 +46,11 @@ class CommonLitDataset(Dataset):
         self.data = pd.read_csv(data_url)
 
         for idx, row in self.data.iterrows():
-            self.data.loc[idx, "excerpt"] = self.basic_preprocess_text(row["excerpt"])
+            self.data.loc[idx, "text"] = self.basic_preprocess_text(row["text"])
     
+        # drop one sentence data.. pretty weak solution
+        self.data.drop(self.data[self.data.text.str.count(". ") <= 2].index, inplace=True)
+
     def basic_preprocess_text(self, text_input: Union[str, List[str]]) -> str:
         text = text_input
         if isinstance(text_input, str):
@@ -60,6 +60,10 @@ class CommonLitDataset(Dataset):
         for one_text in text:
             one_text = one_text.replace("\n", " ").replace("\t", " ").replace("  ", " ")
             one_text = one_text.replace("‘", "'").replace(" – ","—")
+            fix_spaces = re.compile(r'\s*([?!.,]+(?:\s+[?!.,]+)*)\s*')
+            one_text = fix_spaces.sub(lambda x: "{} ".format(x.group(1).replace(" ", "")), one_text)
+
+
             one_text = one_text.strip()
             collect.append(one_text)
         

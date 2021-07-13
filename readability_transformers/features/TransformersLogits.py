@@ -26,11 +26,21 @@ class TransformersLogitsExtractor(FeatureBase):
         self.load()
         
     
-    def load(self):
-        self.tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
-        local_seq_classification_path = os.path.expanduser("~/.cache/readability-transformers/models/roberta_sequence_classification")
-      
-        self.trf_model = RobertaForSequenceClassification.from_pretrained(local_seq_classification_path)
+    def load(self, device=None, custom_tokenizer=None, custom_trf_model=None):
+        if custom_tokenizer is not None:
+            self.tokenizer = custom_tokenizer
+        else:
+            self.tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
+        
+        if custom_trf_model is not None:
+            self.trf_model = custom_trf_model
+        else:
+            local_seq_classification_path = os.path.expanduser("~/.cache/readability-transformers/models/roberta_sequence_classification")
+            self.trf_model = RobertaForSequenceClassification.from_pretrained(local_seq_classification_path)
+
+        if device is not None:
+            self.device = device
+            
         self.trf_model.to(self.device)
         self.trf_model.eval()
 
@@ -70,6 +80,7 @@ class TransformersLogitsExtractor(FeatureBase):
             self.load()
         inputs = self.tokenizer(
             texts,
+            max_length=512,
             padding='max_length',
             truncation=True,
             return_tensors='pt'

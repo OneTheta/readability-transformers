@@ -14,3 +14,4 @@
 
 from .Dataset import Dataset
 from .CommonLitDataset import CommonLitDataset
+from .CEFRDataset import CEFRDataset

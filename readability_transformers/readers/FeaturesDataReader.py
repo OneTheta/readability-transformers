@@ -58,6 +58,9 @@ class FeaturesDataReader(DataReader):
         features: List[str], 
         text_column: str = "excerpt",
         target_column: str = "target",
+        id_column: str = None,
+        classification: bool = False,
+        labels: List[str] = None,
         no_targets: bool = False, 
         double: bool = True
     ):
@@ -73,26 +76,48 @@ class FeaturesDataReader(DataReader):
         super(FeaturesDataReader, self).__init__()
         self.standard_err = None
         self.targets = None
+        self.classification = classification
+        self.labels = labels
         
         if "standard_error" in feature_df.columns.values:
             self.standard_err = feature_df["standard_error"].values
 
         if not no_targets:
-            if "target" not in feature_df.columns.values:
+            if target_column not in feature_df.columns.values:
                 raise Exception("Target column not found. If this is for inference, use no_targets=True.")
-            self.targets = feature_df["target"].values
+            self.targets = feature_df[target_column].tolist()
+
+            if self.classification:
+                # this is a datareader for a classifcation task.
+                if self.labels is None:
+                    raise Exception("Target labels not given for a classification task.")
+                else:
+                    target_index_list = []
+                    for target in self.targets:
+                        try:
+                            index = self.labels.index(target)
+                            target_index_list.append(index)
+                        except:
+                            raise Exception(f"target column has value {target} not found in labels={self.labels}")
+                    self.targets = target_index_list
+
+                
      
         
         self.features = features
-        self.data_ids = feature_df["id"].values
+        if id_column is not None:
+            self.data_ids = feature_df[id_column].values
+        else:
+            self.data_ids = None
+    
         self.inputs_features = feature_df[self.features].values
 
         if not double: # since by default the above values are float64/double.
-            print("NOT DOUBLE")
             self.inputs_features = self.inputs_features.astype(np.float32)
             self.standard_err = self.standard_err.astype(np.float32)
-            self.targets = self.targets.astype(np.float32)
 
+            if not self.classification:
+                self.targets = self.targets.astype(np.float32)
 
         N = len(feature_df)
         F = len(self.inputs_features[0])

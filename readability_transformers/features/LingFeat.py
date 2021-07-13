@@ -31,6 +31,7 @@ class LingFeatExtractor(FeatureBase):
                 self.subgroups = subgroups
     
     def extract(self, text: str) -> dict:
+        num_tokens = len(text.split(" "))
         LingFeat = extractor.pass_text(text)
         LingFeat.preprocess()
         features = {}
@@ -40,10 +41,8 @@ class LingFeatExtractor(FeatureBase):
         
         renamed = dict()
         for key in features.keys():
-            renamed["lf_"+key] = features[key]
+            renamed["lf_"+key] = features[key] / num_tokens
         
-        renamed["lf_manual_num_chars"] = len(text)
-        renamed["lf_manual_num_words"] = len(text.split(" "))
         return renamed
 
     def extract_in_batches(self, texts: List[str]) -> List[dict]:

@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import re
 import time
 import json
 import shutil
@@ -33,7 +34,7 @@ from tqdm.autonotebook import trange
 from sentence_transformers import SentenceTransformer, models, losses, evaluation
 
 from .readers import PairwiseDataReader, PredictionDataReader, FeaturesDataReader
-from .models import Prediction, FCPrediction, ResFCPrediction, TwoStepArchitecture, TwoStepFCPrediction, TwoStepTRFPrediction
+from .models import Prediction, FCPrediction, ResFCClassification, ResFCRegression, TwoStepArchitecture, TwoStepFCPrediction, TwoStepTRFPrediction
 from .features import FeatureBase
 from .file_utils import load_from_cache_pickle, save_to_cache_pickle, path_to_rt_model_cache, download_rt_model
 
@@ -48,12 +49,13 @@ class ReadabilityTransformer(nn.Module):
         device: str,
         double: bool,
         new_checkpoint_path: str = None,
+        default_st_model: str = None
     ):
         '''Initialize the ReadabilityTransformer, which first requires an instantiation
         of the SentenceTransformer then an instantiation of the Prediction model.
 
         Args:
-            st_model_model_namename (str): The transformer model to initialize the SentenceTransformer.
+            model_name (str): The transformer model to initialize the SentenceTransformer.
                 This is the same as the model name in the HuggingFace library list of transformer
                 models. e.g. "bert-base-uncased".
             max_seq_length (int): Same usual idea as with HuggingFace transformers. Possible text 
@@ -65,26 +67,41 @@ class ReadabilityTransformer(nn.Module):
         '''
         super(ReadabilityTransformer, self).__init__()
 
+        # if [None, None] == [model_name, new_checkpoint_path]:
+        #     raise Exception("Must either provide a valid path to a checkpoint or a model supported by ReadabilityTransformers through model_name or new_checkpoint_path to create new.")
+
         self.model_name = model_name
         self.device = device
         self.double = double
+        self.model_path = None
         self.st_model = None
         self.rp_model = None
         self.new_checkpoint_path = new_checkpoint_path
 
         if self.model_name:
             self.model_path = self.process_model_path(self.model_name)
-            self.setup_load_checkpoint(self.model_path)
+            if self.model_path is not None:
+                self.setup_load_checkpoint(self.model_path)
+
 
         if self.new_checkpoint_path is not None:
-            if os.path.isdir(new_checkpoint_path):
-                logger.warning("You are initializing a ReadabilityTransformer model even though one exists already. This will reset the current checkpoint. Are you sure?")
-                logger.warning("Waiting 5 seconds just in case...")
-                time.sleep(5)
+            if os.path.isdir(new_checkpoint_path) and self.model_name is None:
+                logger.warning("You are initializing a ReadabilityTransformer model even though the folder exists already. This will reset the current checkpoint. Are you sure?")
+                logger.warning("Waiting 3 seconds just in case...")
+                time.sleep(3)
                 shutil.rmtree(self.new_checkpoint_path)
-            shutil.copytree(self.model_path, new_checkpoint_path)
-            self.model_path = new_checkpoint_path
 
+            if self.model_path:
+                shutil.copytree(self.model_path, new_checkpoint_path)
+            else:
+                os.makedirs(self.new_checkpoint_path, exist_ok=True)
+                self.model_path = self.new_checkpoint_path
+                self.setup_load_checkpoint(self.new_checkpoint_path)
+
+            self.model_path = self.new_checkpoint_path
+        elif self.new_checkpoint_path is None and self.model_path is None:
+            print("Initializing readability transformers without checkpoint, must supply output_path to fit later on.")
+    
         
 
     def process_model_path(self, model_path: str):
@@ -93,6 +110,7 @@ class ReadabilityTransformer(nn.Module):
             1. A folder to a local checkpoint
             2. A model name that exists in the ReadabilityTransformers system
             3. A url to a zip file containing a valid ReadabilityTransformers checkpoint.
+            4. a model name that exists in the huggingface system (e.g. "roberta-base")
         
         For #2 and #3, we try to save the model to ~/.cache/readability-transformers/models/
         '''
@@ -111,10 +129,14 @@ class ReadabilityTransformer(nn.Module):
                         if url is not None:
                             local_path = download_rt_model(url)
                             return local_path
-                        else:
-                            raise Exception(f"Model does not exist in database or cache: {model_path}")
                     except:
-                        raise Exception(f"Model does not exist in database or cache: {model_path}")
+                        pass
+                    
+                    new_st_model = self.init_st_model(st_model_name=model_path, max_seq_length=512)
+                    return None
+                            
+                    # maybe it's a huggingface model:
+
             else:       
                 # case 3
                 local_path = download_rt_model(url)
@@ -253,49 +275,49 @@ class ReadabilityTransformer(nn.Module):
         self.st_loss = st_loss
 
         # have a saved initial version
-        if self.st_path:
+        if hasattr(self, "st_path") and self.st_path is not None:
             self.st_model.save(self.st_path)
 
     def init_rp_model(
         self, 
-        features: List[str],
-        rp_model: Prediction = None,
-        rp_model_name: str = None, 
+        rp_model: Union[Prediction, str],
+        features: List[str] = None,
         embedding_size: int = None,
         n_layers: int = None,
         h_size: int = 256,
-        dropout: int = 0.1
+        dropout: int = 0.1,
+        n_labels=1 # only used if the request model is a classification model.
     ):
 
         if self.st_model is None:
             raise Exception("Cannot initialize ReadabilityPrediction model before loading/initializing a SentenceTransformer model.")
 
-        if self.rp_model:
+        if self.rp_model: # class already has a rp_model loaded
             logger.warning("You are initializing a new Reading Prediction model even though one exists already. This will reset the current checkpoint. Are you sure?")
             logger.warning("Waiting 5 seconds just in case...")
             time.sleep(5)
             shutil.rmtree(self.rp_path)
             os.mkdir(self.rp_path)
+        
 
-        if rp_model is None:
-            if None in [rp_model_name, embedding_size, n_layers]:
-                raise Exception("Must supply either the RP_model itself or the paramters to create one.")
-
+        if isinstance(rp_model, str):
+            if None in [features, embedding_size, n_layers, h_size, dropout]:
+                raise Exception("Missing parameters for prediction model instantiation")
 
             self.features = features
             self.embedding_size = embedding_size
             feature_count = len(self.features)
-            
             input_size = feature_count + embedding_size
-            if rp_model_name == "fully-connected":
-                rp_model = FCPrediction(input_size, n_layers, h_size, double=self.double)
-            elif rp_model_name == "res-drop-fully-connected":
-                rp_model = ResFCPrediction(input_size, n_layers, h_size, dropout=dropout, double=self.double)
+            
+            if rp_model == "ResFCClassification":
+                rp_model = ResFCClassification(input_size, n_layers, h_size, dropout=dropout, n_labels=n_labels, double=self.double)
+            elif rp_model == "ResFCRegression":
+                rp_model = ResFCRegression(input_size, n_layers, h_size, dropout=dropout, double=self.double)
             else:
                 raise Exception(f"Could not find ReadabilityPrediction model {rp_model_name}")
 
         self.rp_model = rp_model.to(self.device)
-        self.rp_model.features_in_order = features
+        # self.rp_model.features_in_order = features
 
 
     def st_fit(
@@ -440,6 +462,7 @@ class ReadabilityTransformer(nn.Module):
         if self.normalize:
             config["feature_maxes"] = self.feature_maxes
             config["feature_mins"] = self.feature_mins
+        if hasattr(self, "target_max"):
             config["target_max"] = self.target_max
             config["target_min"] = self.target_min
 
@@ -456,18 +479,21 @@ class ReadabilityTransformer(nn.Module):
         epochs: int,
         lr: float,
         weight_decay: float,
-        output_path: str,
         evaluation_steps: int,
         save_best_model: bool,
         show_progress_bar: bool,
         gradient_accumulation: int,
-        device: str
+        output_path: str = None,
+        device: str = "cpu"
     ):
         """
         One way to train the ReadabilityTransformers is by doing st_fit() then rp_fit(), where these are trained
         separately. Another way is through this fit() method, which trains this entire architecture end-to-end,
         from the SentenceTransformer to the final regression prediction.
         """
+        if output_path is None:
+            output_path = self.model_path
+
         logger.add(os.path.join(output_path, "log.out"))
         self.device = device
         self.to(self.device)
@@ -570,10 +596,15 @@ class ReadabilityTransformer(nn.Module):
                 targets_collect.append(targets)
                 predictions_collect.append(predicted_scores)
 
-        targets_full = torch.stack(targets_collect[:-1], dim=0).flatten(end_dim=1)
-        targets_full = torch.cat((targets_full, targets_collect[-1]), dim=0)
-        predictions_full = torch.stack(predictions_collect[:-1], dim=0).flatten(end_dim=1)
-        predictions_full = torch.cat((predictions_full, predictions_collect[-1]), dim=0) # because last batch may not be full
+        if len(targets_collect) > 1:
+            targets_full = torch.stack(targets_collect[:-1], dim=0).flatten(end_dim=1)
+            targets_full = torch.cat((targets_full, targets_collect[-1]), dim=0)
+            predictions_full = torch.stack(predictions_collect[:-1], dim=0).flatten(end_dim=1)
+            predictions_full = torch.cat((predictions_full, predictions_collect[-1]), dim=0) # because last batch may not be full
+        else:
+            targets_full = targets_collect[0]
+            predictions_full = predictions_collect[0]
+            
         for eval_metric in evaluation_metrics:
             eval_metric_name = eval_metric.__class__.__name__
             loss = eval_metric(predictions_full, targets_full)
@@ -688,7 +719,8 @@ class ReadabilityTransformer(nn.Module):
         if self.normalize:
             feature_maxes = self.feature_maxes
             feature_mins = self.feature_mins
-            normalize = lambda value, max_val, min_val: (value - min_val) / (max_val - min_val)
+            normalize = lambda value, max_val, min_val: max(min((value - min_val) / (max_val - min_val), 0.999), 0.001)
+            
             denormalize = lambda value, max_val, min_val: (value * (max_val - min_val)) + min_val
 
         feature_dict_array = []
@@ -732,7 +764,6 @@ class ReadabilityTransformer(nn.Module):
         predictions_collect = []
         
         
-        
         with torch.no_grad():
             batch_size = batch_size
             n_batches = len(passages) // batch_size
@@ -749,17 +780,23 @@ class ReadabilityTransformer(nn.Module):
                 one_prediction = self.forward(passage_batch, feature_batch)
                 predictions_collect.append(one_prediction)
 
-            predictions = torch.stack(predictions_collect[:-1], dim=0).flatten(end_dim=1)
-            predictions = torch.cat((predictions, predictions_collect[-1]), dim=0) # because last batch may not be full
 
+            if len(predictions_collect) > 1:
+                predictions = torch.stack(predictions_collect[:-1], dim=0).flatten(end_dim=1)
+                predictions = torch.cat((predictions, predictions_collect[-1]), dim=0) # because last batch may not be full
+            else:
+                predictions = predictions_collect[0]
+
+           
 
         """
         5. Denormalize Prediction
         """
-        target_max = self.target_max
-        target_min = self.target_min
-        
-        predictions = denormalize(predictions, target_max, target_min)
+        if hasattr(self, "target_column") and self.target_column is not None and hasattr(self, "target_max") and self.target_max is not None:
+            target_max = self.target_max
+            target_min = self.target_min
+            
+            predictions = denormalize(predictions, target_max, target_min)
 
         return predictions
 
@@ -772,6 +809,10 @@ class ReadabilityTransformer(nn.Module):
         for one_text in text:
             one_text = one_text.replace("\n", " ").replace("\t", " ").replace("  ", " ")
             one_text = one_text.replace("‘", "'").replace(" – ","—")
+            # fix_spaces = re.compile(r'\s*([?!.,]+(?:\s+[?!.,]+)*)\s*')
+            # one_text = fix_spaces.sub(lambda x: "{} ".format(x.group(1).replace(" ", "")), one_text)
+
+
             one_text = one_text.strip()
             collect.append(one_text)
         
@@ -786,10 +827,10 @@ class ReadabilityTransformer(nn.Module):
         feature_extractors: List[FeatureBase],
         batch_size: int = None,
         text_column: str = "excerpt",
-        target_column: str = "target",
+        target_column: str = None,
         cache: bool = False,
         cache_ids: List[str] = None,
-        normalize=True,
+        normalize=False,
         extra_normalize_columns: List[str] = None
     ) -> List[pd.DataFrame]: 
         """Applies the feature classes on the dataframes in df_list such that new columns are appended for each feature.
@@ -803,7 +844,7 @@ class ReadabilityTransformer(nn.Module):
             feature_classes (List[FeatureBase]): List of Feature classes to use to apply features to the text.
             text_column: Name of the column in the dataframe that contains the text in interest. Defaults to "excerpt".
             target_column: Name of the column in the dataframe that contains the target value of the model.
-            cache (bool): Whether to cache the dataframes generated after applying the features. Feature extraction can be a costly
+            cache (boolf): Whether to cache the dataframes generated after applying the features. Feature extraction can be a costly
                 process that might serve well to do only once per dataset. Defaults to False.
             cache_ids (List[str]): Must be same length as df_list. The ID value for the cached feature dataset generated from the datasets
                 in df_list. Defaults to None.
@@ -924,11 +965,12 @@ class ReadabilityTransformer(nn.Module):
 
         feature_list = [col for col in final_list[0].columns.values if col.startswith("feature_")]
         feature_list = feature_list + extra_normalize_columns
-        if target_column not in feature_list:
+        if target_column not in feature_list and target_column is not None:
             # if target_column not given in extra_normalize_columns
             # kind of just an error check since we do want the target_column in the feature_list.
             feature_list.append(target_column)
         
+        pre_blacklist_features = []
         if normalize:
             self.normalize = True
             self.feature_maxes = dict()
@@ -943,7 +985,7 @@ class ReadabilityTransformer(nn.Module):
                     self.feature_maxes[feature].append(one_feat_list.max())
                     self.feature_mins[feature].append(one_feat_list.min())
             
-            pre_blacklist_features = []
+            
             for feature in feature_list:
                 fmax = max(self.feature_maxes[feature])
                 fmin = min(self.feature_mins[feature])
@@ -953,12 +995,10 @@ class ReadabilityTransformer(nn.Module):
                 else:
                     scalar = (fmax - fmin)
 
-                    fmax = fmax + 0.05*scalar
-                    fmin = fmin - 0.05*scalar
+                    fmax = fmax + 0.1*scalar
+                    fmin = fmin - 0.1*scalar
+                    # to avoid 0.00 and 1.00 values for target & room for extra space at inference time.
 
-                    # if feature == target_column: # to avoid 0.00 and 1.00 values for target & room for extra space at inference time.
-                    #     fmax = fmax + 0.04
-                    #     fmin = fmin - 0.04
                     self.feature_maxes[feature] = fmax
                     self.feature_mins[feature] = fmin
 
@@ -984,11 +1024,15 @@ class ReadabilityTransformer(nn.Module):
 
         # For code readability's sake, I'm listing all the instance var settings here:
         # when we load the model again, we'll find these values.
+        self.target_column = target_column
         self.normalize = normalize
-        self.feature_maxes = self.feature_maxes
-        self.feature_mins = self.feature_mins
-        self.target_max = self.feature_maxes[target_column]
-        self.target_min = self.feature_mins[target_column]
+
+        if self.normalize:
+            self.feature_maxes = self.feature_maxes
+            self.feature_mins = self.feature_mins
+            if self.target_column is not None:
+                self.target_max = self.feature_maxes[target_column]
+                self.target_min = self.feature_mins[target_column]
         self.blacklist_features = blacklist_features
         self.features = [col for col in final_list[0].columns.tolist() if col.startswith("feature_")]
         self.feature_extractors = feature_extractors

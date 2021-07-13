@@ -96,7 +96,9 @@ class Prediction(nn.Module):
                 targets = batch["target"].to(self.device)
                 predicted_scores = self.forward(inputs)
 
-                if "standard_err" in batch.keys():
+                
+
+                if "standard_err" in batch.keys() and "standard_errors" in train_metric.forward.__code__.co_varnames:
                     standard_err = batch["standard_err"].to(self.device)
                     loss = train_metric(predicted_scores, targets, standard_err) / gradient_accumulation
                 else:
@@ -123,7 +125,8 @@ class Prediction(nn.Module):
                         config=config
                     )
                     self.train()
-       
+            print("predicted_scores",predicted_scores[:5])
+            print("targets",targets[:5])
             logger.info(f"Epoch {epoch} train loss avg={np.mean(epoch_train_loss)}")
             epoch_train_loss = []
             # One epoch done.
@@ -163,10 +166,15 @@ class Prediction(nn.Module):
                 targets_collect.append(targets)
                 predictions_collect.append(predicted_scores)
             
-            targets_full = torch.stack(targets_collect[:-1], dim=0).flatten(end_dim=1)
-            targets_full = torch.cat((targets_full, targets_collect[-1]), dim=0)
-            predictions_full = torch.stack(predictions_collect[:-1], dim=0).flatten(end_dim=1)
-            predictions_full = torch.cat((predictions_full, predictions_collect[-1]), dim=0) # because last batch may not be full
+            if len(targets_collect) > 1:
+                targets_full = torch.stack(targets_collect[:-1], dim=0).flatten(end_dim=1)
+                targets_full = torch.cat((targets_full, targets_collect[-1]), dim=0)
+                predictions_full = torch.stack(predictions_collect[:-1], dim=0).flatten(end_dim=1)
+                predictions_full = torch.cat((predictions_full, predictions_collect[-1]), dim=0) # because last batch may not be full
+            else:
+                targets_full = targets_collect[0]
+                predictions_full = predictions_collect[0]
+                
             for eval_metric in evaluation_metrics:
                 eval_metric_name = eval_metric.__class__.__name__
                 loss = eval_metric(predictions_full, targets_full)
@@ -206,7 +214,45 @@ class Prediction(nn.Module):
 
 
 
-class ResFCPrediction(Prediction):
+class ResFCClassification(Prediction):
+    def __init__(self, input_size: int, n_layers: int, h_size: int, dropout: int, n_labels: List, double: bool):
+        super().__init__(input_size, double)
+
+        self.input_size = input_size
+        self.n_layers = n_layers
+        self.h_size = h_size,
+        self.dropout = dropout
+        self.n_labels = n_labels
+        self.double = double
+
+        self.resfc_linear = ResFCLinear(input_size, n_layers, h_size, dropout, double)
+        self.classification_head = ClassificationHead(h_size, dropout, n_labels, double)
+
+    def forward(self, x):
+        assert x.size(1) == self.input_size
+        
+        if self.double:
+            x = x.type(torch.float64)
+        else:
+            x = x.type(torch.float32)
+        
+        hidden_outputs = self.resfc_linear(x)
+        classification_outputs = self.classification_head(hidden_outputs)
+        return classification_outputs
+
+    def config(self):
+        return {
+            "input_size": self.input_size,
+            "n_layers": self.n_layers,
+            "h_size": self.h_size,
+            "dropout": self.dropout,
+            "n_labels": self.n_labels,
+            "double": self.double
+        }
+        
+
+
+class ResFCRegression(Prediction):
     def __init__(self, input_size: int, n_layers: int, h_size: int, dropout: int, double: bool):
         """PREDICTION_MODEL_1: Fully-Connected NN. 
         This is MODEL_1 of the list of possible tail-end models for the ReadabilityTransformer,
@@ -218,33 +264,79 @@ class ResFCPrediction(Prediction):
             h_size (int): Size of hidden layer
         """
         super().__init__(input_size, double)
+        self.input_size = input_size
+        self.n_layers = n_layers
+        self.h_size = h_size,
+        self.dropout = dropout
+        self.double = double
+
+        self.resfc_linear = ResFCLinear(input_size, n_layers, h_size, dropout, double)
+        self.regression_head = RegressionHead(h_size, dropout, double)
+
+    def forward(self, x):
+        assert x.size(1) == self.input_size
+        
+        if self.double:
+            x = x.type(torch.float64)
+        else:
+            x = x.type(torch.float32)
+        
+        hidden_outputs = self.resfc_linear(x)
+        regression_outputs = self.regression_head(hidden_outputs)
+        regression_outputs = torch.squeeze(regression_outputs, dim=-1)
+        return regression_outputs
+
+    def config(self):
+        return {
+            "input_size": self.input_size,
+            "n_layers": self.n_layers,
+            "h_size": self.h_size,
+            "dropout": self.dropout,
+            "double": self.double
+        }
+
+
+
+
+
+class ResFCLinear(nn.Module):
+    def __init__(self, input_size: int, n_layers: int, h_size: int, dropout: int, double: bool):
+        """PREDICTION_MODEL_1: Fully-Connected NN. 
+        This is MODEL_1 of the list of possible tail-end models for the ReadabilityTransformer,
+        where it predicts the Readability score given the features extracted and the embedding from the SentenceTransformer.
+
+        Args:
+            input_size (int): # of values per one row of data.
+            n_layers (int): number of layers for the fully connected NN.
+            h_size (int): Size of hidden layer
+        """
+        super(ResFCLinear, self).__init__()
             
         if self.double:
             torch.set_default_dtype(torch.float64)
         else:
             torch.set_default_dtype(torch.float32)
 
+        if n_layers < 2:
+            raise Exception("n_layers must be greater or equal to 2.")
+
         self.input_size = input_size
         self.n_layers = n_layers
         self.dropout = dropout
 
-        self.norm_1 = nn.LayerNorm(input_size)
-        self.fc_1 = nn.Linear(input_size, h_size, bias=True)
-        self.af_1 = nn.ReLU()
-
-        for n in range(2, self.n_layers):
-            fc_layer_name = f"fc_{n}"
-            af_name = f"af_{n}"
-            norm= f"norm_{n}"
-            drop = f"dropout_{n}"
-            setattr(self,norm, nn.LayerNorm(h_size))
-            setattr(self, fc_layer_name, nn.Linear(h_size, h_size, bias=True))
-            setattr(self, af_name, nn.ReLU())
-            setattr(self, drop, nn.Dropout(dropout))
-        self.norm_last = nn.LayerNorm(h_size)
-        self.fc_last = nn.Linear(h_size, 1, bias=True)
-        self.af_last = nn.ReLU()
-
+  
+        self.model = nn.Sequential(
+            nn.Linear(input_size, h_size),
+            nn.BatchNorm1d(h_size),
+            nn.ReLU(),
+            *[ResFCHiddenLinear(
+                hidden_dim=h_size,
+                dropout=dropout,
+                double=double
+            ) for n in range(n_layers - 1)]
+        )
+        
+            
 
     def forward(self, x):
         assert x.size(1) == self.input_size
@@ -254,34 +346,38 @@ class ResFCPrediction(Prediction):
         else:
             x = x.type(torch.float32)
 
-        x = self.norm_1(x)
-        x = self.fc_1(x)
-        x = self.af_1(x)
+        x = self.model(x)
 
-        for n in list(range(2, self.n_layers)):
-            norm = getattr(self, f"norm_{n}")
-            layer = getattr(self, f"fc_{n}")
-            af = getattr(self, f"af_{n}")
-            drop = getattr(self, f"dropout_{n}")
-            
-            x = norm(x)
-            x = x + af(drop(layer(x)))
-           
-        x = self.norm_last(x)
-        x = self.fc_last(x)
-        x = self.af_last(x)
         x = torch.squeeze(x, dim=-1)
         return x
 
-    def config(self):
-        return {
-            "input_size": self.input_size,
-            "n_layers": self.n_layers,
-            "dropout": self.dropout,
-
-        }
+    
 
 
+class ResFCHiddenLinear(nn.Module):
+    def __init__(self, hidden_dim: int, layernorm_eps:float=1e-12, dropout: float=0.1, double: bool=False):
+        super(ResFCHiddenLinear, self).__init__()
+        self.hidden_dim = hidden_dim
+        self.dropout = dropout
+        self.double = double
+
+        if self.double:
+            torch.set_default_dtype(torch.float64)
+        else:
+            torch.set_default_dtype(torch.float32)
+
+        self.dense = nn.Linear(hidden_dim, hidden_dim)
+        self.layernorm = nn.LayerNorm(hidden_dim, eps=layernorm_eps)
+        self.activation = nn.ReLU()
+        self.dropout = nn.Dropout(dropout)
+    
+    def forward(self, hidden_states):
+        hidden_states_out = self.dense(hidden_states)
+        hidden_states_out = self.dropout(hidden_states_out)
+        hidden_states_out = self.activation(hidden_states_out)
+        hidden_states_out = self.layernorm(hidden_states + hidden_states_out)
+        return hidden_states
+        
 
 class FCPrediction(Prediction):
     def __init__(self, input_size: int, n_layers: int, h_size: int, double: bool):
@@ -316,7 +412,7 @@ class FCPrediction(Prediction):
             setattr(self, af_name, nn.ReLU())
         self.norm_last = nn.LayerNorm(h_size)
         self.fc_last = nn.Linear(h_size, 1, bias=True)
-        self.af_last = nn.ReLU()
+        # self.af_last = nn.ReLU()
 
     
 
@@ -340,7 +436,7 @@ class FCPrediction(Prediction):
             x = af(x)
         x = self.norm_last(x)
         x = self.fc_last(x)
-        x = self.af_last(x)
+        # x = self.af_last(x)
         x = torch.squeeze(x, dim=-1)
         return x
 
@@ -349,3 +445,68 @@ class FCPrediction(Prediction):
             "input_size": self.input_size,
             "n_layers": self.n_layers
         }
+
+
+
+class ClassificationHead(nn.Module):
+    """Head for sentence-level classification tasks."""
+
+    def __init__(self, hidden_size, hidden_dropout, num_labels, double: bool = True):
+        super().__init__()
+
+        if double:
+            torch.set_default_dtype(torch.float64)
+        else:
+            torch.set_default_dtype(torch.float32)
+
+        self.double = double
+        self.dense = nn.Linear(hidden_size, hidden_size)
+        self.dropout = nn.Dropout(hidden_dropout)
+        self.out_proj = nn.Linear(hidden_size, num_labels)
+
+    def forward(self, features, **kwargs):
+        x = features
+
+        if self.double:
+            x = x.type(torch.float64)
+        else:
+            x = x.type(torch.float32)
+
+        x = self.dropout(x)
+        x = self.dense(x)
+        x = torch.tanh(x)
+        x = self.dropout(x)
+        x = self.out_proj(x)
+        return x
+
+
+class RegressionHead(nn.Module):
+    """Head for sentence-level regression tasks."""
+
+    def __init__(self, hidden_size, hidden_dropout, double: bool = True):
+        super().__init__()
+
+        if double:
+            torch.set_default_dtype(torch.float64)
+        else:
+            torch.set_default_dtype(torch.float32)
+
+        self.double = double
+        self.dense = nn.Linear(hidden_size, hidden_size)
+        self.dropout = nn.Dropout(hidden_dropout)
+        self.out_proj = nn.Linear(hidden_size, 1)
+
+    def forward(self, features, **kwargs):
+        x = features
+
+        if self.double:
+            x = x.type(torch.float64)
+        else:
+            x = x.type(torch.float32)
+
+        x = self.dropout(x)
+        x = self.dense(x)
+        x = torch.tanh(x)
+        x = self.dropout(x)
+        x = self.out_proj(x)
+        return x

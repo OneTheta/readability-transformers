@@ -103,15 +103,21 @@ class EntityGrid:
         # Fill entity grid
         for i in range(n_sent):
             sentence = "s%d" % (i + 1)
-            for entity, dep in entity_map[sentence]:
-                if entity_grid[entity][i] == '-':
-                    entity_grid[entity][i] = dependency_mapping(dep)
-                elif dependency_mapping(dep) == 'S':
-                    entity_grid[entity][i] = dependency_mapping(dep)
-                elif (dependency_mapping(dep) == 'O'
-                      and entity_grid[entity][i] == 'X'):
-                    entity_grid[entity][i] = dependency_mapping(dep)
-
+            try:
+                for entity, dep in entity_map[sentence]:
+                    if entity_grid[entity][i] == '-':
+                        entity_grid[entity][i] = dependency_mapping(dep)
+                    elif dependency_mapping(dep) == 'S':
+                        entity_grid[entity][i] = dependency_mapping(dep)
+                    elif (dependency_mapping(dep) == 'O'
+                        and entity_grid[entity][i] == 'X'):
+                        entity_grid[entity][i] = dependency_mapping(dep)
+            except:
+                print("entity_map", entity_map)
+                print("sentence", sentence)
+                print("FAIL AT ENGF:", NLP_doc)
+                print(self)
+                print("NLP_doc", str(NLP_doc))
         # Compute feature vector, we consider transitions of length 2
         total_transitions = (n_sent - 1) * len(entity_grid.keys())
 

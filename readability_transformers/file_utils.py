@@ -57,6 +57,7 @@ def download_file(url, dest):
     total_size_in_bytes= int(response.headers.get('content-length', 0))
     block_size = 1024 #1 Kibibyte
     progress_bar = tqdm(total=total_size_in_bytes, unit='iB', unit_scale=True)
+    print("Downloading:",url)
     with open(dest, 'wb') as f:
         for data in response.iter_content(block_size):
             progress_bar.update(len(data))
@@ -81,7 +82,7 @@ def unzip_to(zip_file_path, target_path):
         tar.close()
     elif zip_file_path.endswith("zip"):
         zip_ref = zipfile.ZipFile(zip_file_path, "r")
-        zip_ref.extractall(dest_url)
+        zip_ref.extractall(target_path)
         zip_ref.close()
 
     return

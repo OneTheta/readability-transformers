@@ -42,6 +42,62 @@ from .file_utils import load_from_cache_pickle, save_to_cache_pickle, path_to_rt
 CACHE_DIR = os.path.expanduser("~/.cache/readability-transformers/data")
 RT_MODEL_LOOKUP = "http://readability.1theta.com/models/"
 
+
+def _extract_features_batches(remain_id: str, remain_data: pd.DataFrame, feature_extractors) -> pd.DataFrame:
+    text_list = remain_data[text_column].values
+    for batch_idx in trange(len(text_list) // batch_size + 1):
+        if batch_idx * batch_size == len(text_list):
+            break
+        one_batch = list(text_list[batch_idx*batch_size : (batch_idx + 1)*batch_size])
+    
+        feature_dict_list_collect = []
+        for one_extractor in feature_extractors:
+            feature_dict_list = one_extractor.extract_in_batches(one_batch)
+            assert len(feature_dict_list) == len(one_batch)
+            feature_dict_list_collect.append(feature_dict_list)
+
+        # feature_dict_list_collect.shape == (#features, #passages)
+        passages_features = [] # trying to get (#passages, #features)
+        for passage_idx in range(len(one_batch)):
+            # complete_faetures_per_passage = full feature dictionary corresponding for that passage 
+            # from all the feature extractors
+            complete_features_per_passage = dict()
+            for feature_dict_list in feature_dict_list_collect:
+                passage_feature_dict = feature_dict_list[passage_idx]
+                for key in passage_feature_dict.keys():
+                    complete_features_per_passage[key] = passage_feature_dict[key]
+            passages_features.append(complete_features_per_passage)
+            
+        '''
+        passages_features = [
+            {text_1_feature_1, text_1_feature_2, text_1_feature_3, ...},
+            {text_2_feature_1, text_2_feature_2, text_2_feature_3, ...},
+            ...
+        ]
+        '''
+        
+        df_idx_list = remain_data.index[batch_idx*batch_size : (batch_idx + 1) * batch_size]     
+        text_batch_features = np.array([list(i.values()) for i in passages_features])
+        feature_names = passages_features[0].keys()
+        feature_names = ['feature_' + k for k in feature_names]
+        assert text_batch_features.shape == (len(one_batch), len(feature_names))
+        assert text_batch_features.shape == (len(df_idx_list), len(feature_names))
+        remain_data.loc[df_idx_list, feature_names] = text_batch_features
+
+    return remain_data
+
+def _extract_features(remain_id, remain_data, feature_extractors) -> pd.DataFrame:
+    for idx, row in tqdm(remain_data.iterrows(), total=len(remain_data)):
+        text = row[text_column] # refer to docstring
+        text_features = dict()
+        for one_extractor in feature_extractors:
+            feature_dict = one_extractor.extract(text)
+            for feature_key in feature_dict.keys():
+                text_features[feature_key] = feature_dict[feature_key]
+        remain_data.loc[idx, ['feature_' + k for k in text_features.keys()]] = text_features.values()
+    return remain_data
+
+
 class ReadabilityTransformer(nn.Module):
     def __init__(
         self,
@@ -687,9 +743,13 @@ class ReadabilityTransformer(nn.Module):
 
         predicted_scores = self.rp_model(rp_inputs)
         return predicted_scores
-    
 
     def predict(self, passages: List[str], batch_size: int = 1):
+        predictions, features, features_normalized = self.predict_verbose(passages, batch_size)
+        return predictions
+    
+
+    def predict_verbose(self, passages: List[str], batch_size: int = 1):
         """This is an inference function without gradients. For a forward pass of the model with gradients
         that lets you train the model, refer to self.forward(). 
 
@@ -720,7 +780,6 @@ class ReadabilityTransformer(nn.Module):
             feature_maxes = self.feature_maxes
             feature_mins = self.feature_mins
             normalize = lambda value, max_val, min_val: max(min((value - min_val) / (max_val - min_val), 0.999), 0.001)
-            
             denormalize = lambda value, max_val, min_val: (value * (max_val - min_val)) + min_val
 
         feature_dict_array = []
@@ -732,8 +791,9 @@ class ReadabilityTransformer(nn.Module):
             feature_dict_list_collect = []
             for one_extractor in feature_extractors:
                 feature_dict_list = one_extractor.extract_in_batches(one_batch)
-                assert len(feature_dict_list) == len(one_batch)
                 feature_dict_list_collect.append(feature_dict_list)
+
+                assert len(feature_dict_list) == len(one_batch)
 
             for passage_idx in range(len(one_batch)):
                 # complete_faetures_per_passage = full feature dictionary corresponding for that passage 
@@ -745,25 +805,27 @@ class ReadabilityTransformer(nn.Module):
                         complete_features_per_passage["feature_"+key]  = passage_feature_dict[key]
                 feature_dict_array.append(complete_features_per_passage)
             
-
+        pre_norm_feature_matrix = []
         feature_matrix = []
         for passage_idx, feat_dict in enumerate(feature_dict_array):
+            pre_norm_passage_feature_num_array = []
             passage_feature_num_array = []
             for feat_idx, one_feature in enumerate(features): # preserve order of original model input
                 feat_value = feat_dict[one_feature]
+                pre_norm_passage_feature_num_array.append(feat_value)
                 if self.normalize:
                     max_val = feature_maxes[one_feature]
                     min_val = feature_mins[one_feature]
                     feat_value = normalize(feat_value, max_val, min_val)
                 passage_feature_num_array.append(feat_value)
+
+            pre_norm_feature_matrix.append(pre_norm_passage_feature_num_array)
             feature_matrix.append(passage_feature_num_array)
 
         assert len(feature_matrix) == len(passages)
         assert len(feature_matrix[0]) == len(self.features)
 
         predictions_collect = []
-        
-        
         with torch.no_grad():
             batch_size = batch_size
             n_batches = len(passages) // batch_size
@@ -778,6 +840,7 @@ class ReadabilityTransformer(nn.Module):
                 feature_batch = feature_matrix[start_idx : end_idx]
                 
                 one_prediction = self.forward(passage_batch, feature_batch)
+
                 predictions_collect.append(one_prediction)
 
 
@@ -787,18 +850,16 @@ class ReadabilityTransformer(nn.Module):
             else:
                 predictions = predictions_collect[0]
 
-           
-
         """
         5. Denormalize Prediction
         """
-        if hasattr(self, "target_column") and self.target_column is not None and hasattr(self, "target_max") and self.target_max is not None:
+        if hasattr(self, "target_max") and self.target_max is not None:
             target_max = self.target_max
             target_min = self.target_min
             
             predictions = denormalize(predictions, target_max, target_min)
 
-        return predictions
+        return predictions, feature_matrix, pre_norm_feature_matrix
 
     def basic_preprocess_text(self, text_input: Union[str, List[str]]) -> str:
         text = text_input
@@ -865,13 +926,14 @@ class ReadabilityTransformer(nn.Module):
             if cache_ids is None:
                 raise Exception("Cache set to true but no label for the cache.")
             else:
-                # Load what we can from cache.
+                # Load *what we can* from cache.
                 for cache_id in cache_ids:
                     cache_loaded = load_from_cache_pickle("preapply", f"features_{cache_id}")
                     if cache_loaded is not None:
                         logger.info(f"Found & loading cache ID: {cache_id}...")
                         features_applied[cache_id] = cache_loaded
 
+        # Error Checking
         for one_df in df_list:
             col_list = one_df.columns.values
             already_features = [col for col in col_list if col.startswith("feature_")]
@@ -891,73 +953,23 @@ class ReadabilityTransformer(nn.Module):
             assert set(current_loaded).issubset(set(cache_ids))
             remaining_ids = list(set(cache_ids).difference(set(current_loaded)))
             remaining = [df_list[cache_ids.index(remain_id)] for remain_id in remaining_ids]
-        # remaining == dataframes that we have not yet loaded from cache.
-        # obviously if cache == False then remaining == full requested df_list
 
+        # extract features
         for remain_id, remain_data in zip(remaining_ids, remaining):
             logger.info(f"Extracting features for cache_id={remain_id}")
 
             if batch_size is not None:
-                # extract in baches
-                text_list = remain_data[text_column].values
-                for batch_idx in trange(len(text_list) // batch_size + 1):
-                    if batch_idx * batch_size == len(text_list):
-                        break
-                    one_batch = list(text_list[batch_idx*batch_size : (batch_idx + 1)*batch_size])
-                
-
-                    feature_dict_list_collect = []
-                    for one_extractor in feature_extractors:
-                        feature_dict_list = one_extractor.extract_in_batches(one_batch)
-                        assert len(feature_dict_list) == len(one_batch)
-                        feature_dict_list_collect.append(feature_dict_list)
-
-                    # feature_dict_list_collect.shape == (#features, #passages)
-                    passages_features = [] # trying to get (#passages, #features)
-                    for passage_idx in range(len(one_batch)):
-                        # complete_faetures_per_passage = full feature dictionary corresponding for that passage 
-                        # from all the feature extractors
-                        complete_features_per_passage = dict()
-                        for feature_dict_list in feature_dict_list_collect:
-                            passage_feature_dict = feature_dict_list[passage_idx]
-                            for key in passage_feature_dict.keys():
-                                complete_features_per_passage[key] = passage_feature_dict[key]
-                        passages_features.append(complete_features_per_passage)
-                        
-                    '''
-                    passages_features = [
-                        {text_1_feature_1, text_1_feature_2, text_1_feature_3, ...},
-                        {text_2_feature_1, text_2_feature_2, text_2_feature_3, ...},
-                        ...
-                    ]
-                    '''
-                    
-                    df_idx_list = remain_data.index[batch_idx*batch_size : (batch_idx + 1) * batch_size]     
-                    text_batch_features = np.array([list(i.values()) for i in passages_features])
-                    feature_names = passages_features[0].keys()
-                    feature_names = ['feature_' + k for k in feature_names]
-                    assert text_batch_features.shape == (len(one_batch), len(feature_names))
-                    assert text_batch_features.shape == (len(df_idx_list), len(feature_names))
-                    remain_data.loc[df_idx_list, feature_names] = text_batch_features
-            
+                remain_data = _extract_features_batches(remain_id, remain_data, feature_extractors)
             else:
-                for idx, row in tqdm(remain_data.iterrows(), total=len(remain_data)):
-                    text = row[text_column] # refer to docstring
-                    text_features = dict()
-                    for one_extractor in feature_extractors:
-                        feature_dict = one_extractor.extract(text)
-                        for feature_key in feature_dict.keys():
-                            text_features[feature_key] = feature_dict[feature_key]
-                    remain_data.loc[idx, ['feature_' + k for k in text_features.keys()]] = text_features.values()
-            
+                remain_data = _extract_features(remain_id, remain_data, feature_extractors)
+        
+            features_applied[remain_id] = remain_data
+
             if cache:
                 logger.info(f"Saving '{remain_id}' to cache...")
                 save_to_cache_pickle("preapply", f"features_{remain_id}", "features_"+remain_id+".pkl", remain_data)
-            
-            features_applied[remain_id] = remain_data
 
         # features_applied == list of DFs where feature columns have been appended.
-        final_list = None
         if cache:
             final_list = [features_applied[cache_id] for cache_id in cache_ids]
         else:
@@ -984,7 +996,6 @@ class ReadabilityTransformer(nn.Module):
                     one_feat_list = df[feature].values
                     self.feature_maxes[feature].append(one_feat_list.max())
                     self.feature_mins[feature].append(one_feat_list.min())
-            
             
             for feature in feature_list:
                 fmax = max(self.feature_maxes[feature])
@@ -1036,6 +1047,17 @@ class ReadabilityTransformer(nn.Module):
         self.blacklist_features = blacklist_features
         self.features = [col for col in final_list[0].columns.tolist() if col.startswith("feature_")]
         self.feature_extractors = feature_extractors
+
+        if cache:
+            if self.normalize:
+                norm_metadata = {
+                    "feature_maxes": self.feature_maxes,
+                    "feature_mins": self.feature_mins
+                }
+                df = pd.DataFrame(norm_metadata)
+                metadata_cache_name = "_".join(cache_ids)
+                save_to_cache_pickle("preapply", f"norm_metadata_{metadata_cache_name}", f"norm_metadata_{metadata_cache_name}.pkl", df)
+
         return final_list
 
     def pre_apply_embeddings(
@@ -1080,6 +1102,7 @@ class ReadabilityTransformer(nn.Module):
         self.embedding_size = collect_embeddings[0].shape[-1]
         return np.array(collect_embeddings)
 
+    
     def get_feature_list(self, dataframe: pd.DataFrame = None) -> List[str]:
         if dataframe is not None:
             return [col for col in dataframe.columns.values if col.startswith("feature_")]

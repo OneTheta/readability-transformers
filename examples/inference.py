@@ -19,7 +19,7 @@ def get_test_df():
 
 def inference_on_dataset():
     model = ReadabilityTransformer(
-        "checkpoints/dump/prediction_2",
+        "checkpoints/dump/v16_regression_6",
         device="cuda:0",
         double=True
     )
@@ -114,4 +114,4 @@ def inference_on_valid_split():
 
 
 if __name__ == "__main__":
-    inference_on_valid_split()
+    inference_on_dataset()

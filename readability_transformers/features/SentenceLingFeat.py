@@ -40,18 +40,48 @@ FULL_SUBGROUPS = ['CKKF_', 'POSF_', 'TrSF_',
 
 SENTENCE_LEVEL_SUBGROUPS = [
     "EnDF_", # Related to the count of entities found in the text
-    "PhrF_"  # Related to the counts of nouns, verbs, adverb phrases
+    "PhrF_",  # Related to the counts of nouns, verbs, adverb phrases
+    
+    # Lexico-Semantic features are all done at token-levels. 
+    "PsyF_", 
+    "TTRF_", 
+    "VarF_",
+    "WorF_ ",
+
+    "ShaF_", # has to do with count of syllables and words
+    "PhrF+",  # has to do with counts of nouns verbs etc
+    "TrSF+",  # has to do with parse tree heights
+    "POSF_"
 ]
 DOCUMENT_LEVEL_SUBGROUPS = [
     "EnGF_" # See Reference #1 above
 ]
 
-class LingFeatExtractor(FeatureBase):
+class SentenceLingFeatExtractor(FeatureBase):
     def __init__(self, subgroups: List[str] = None):
-        self.subgroups = ['CKKF_', 'POSF_', 'PhrF_', 'TrSF_',
-              'EnDF_', 'EnGF_', 'ShaF_', 'TraF_',
-              'TTRF_', 'VarF_', 'PsyF_', 'WorF_']
-        
+        """
+        The subgroup list is a subset from the full LingFeat subgroup list 
+        where the subgroups that only make sense at a document-level are removed.
+
+        Removed subgroups:
+            (AdvancedSemantics): CKKF, OSKF, WBKF, WoKF
+                The above uses Latent Dirichlet Allocation to look at distributions
+                of "topics" across a document.
+            (Discourse): EnGF
+                EnGF uses this idea of an "entity grid", which is about transitions of references
+                to various entities across different sentences.
+
+        Removed Features:
+            Some background:
+                Features that start with "as_{feature_x}" refer to the value:
+                    {feature_x} // # of sentences
+                Features that start with "at_{feature_x}" refer to the value:
+                    {feature_x} // # of tokens
+                
+            So features that start with as_ are removed.
+        """
+
+        self.subgroups = ['POSF_',  'PhrF_', 'TrSF_', 'EnDF_', 'ShaF_', 'TTRF_', 'VarF_', 'PsyF_', 'WorF_']
         if subgroups is not None:
             valid = [feature for feature in subgroups if feature not in self.subgroups]
             if len(valid) > 0:
@@ -70,7 +100,8 @@ class LingFeatExtractor(FeatureBase):
         
         renamed = dict()
         for key in features.keys():
-            renamed["lf_"+key] = features[key] / num_tokens
+            if not key.startswith("as_"):
+                renamed["lf_"+key] = features[key] / num_tokens
         
         return renamed
 

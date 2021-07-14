@@ -125,8 +125,7 @@ class Prediction(nn.Module):
                         config=config
                     )
                     self.train()
-            print("predicted_scores",predicted_scores[:5])
-            print("targets",targets[:5])
+    
             logger.info(f"Epoch {epoch} train loss avg={np.mean(epoch_train_loss)}")
             epoch_train_loss = []
             # One epoch done.

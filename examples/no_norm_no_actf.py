@@ -25,7 +25,7 @@ def rp_train(model, output_path, device, n_layers=7, weighted_mse_min_weight=0.7
     # constant over these tests.
     normalize = True
     
-    reset_cache()
+    # reset_cache()
 
     assert model.st_model is not None
     rp_options = {
@@ -37,7 +37,7 @@ def rp_train(model, output_path, device, n_layers=7, weighted_mse_min_weight=0.7
         "st_embed_batch_size": 32,
         "weighted_mse_min_weight": weighted_mse_min_weight,
         "batch_size": 64,
-        "epochs": 2000,
+        "epochs": 400,
         "lr": lr,
         "weight_decay": weight_decay,
         "evaluation_steps": 5000,
@@ -49,7 +49,7 @@ def rp_train(model, output_path, device, n_layers=7, weighted_mse_min_weight=0.7
 
 
     lf = LingFeatExtractor()
-    trf = TransformersLogitsExtractor(device=device)
+    # trf = TransformersLogitsExtractor(device=device)
 
     commonlit_data = CommonLitDataset("train")
     train_df, valid_df = commonlit_data.split_train_valid_test(ratios=rp_options.ratios, ratio_cache_labels=rp_options.ratio_cache_labels)
@@ -62,14 +62,13 @@ def rp_train(model, output_path, device, n_layers=7, weighted_mse_min_weight=0.7
         cache_ids = ["train_v16_no_norm_lf", "valid_v16_no_norm_lf"]
     train_df, valid_df = model.pre_apply_features(
         df_list=[train_df, valid_df], 
-        # feature_extractors=[lf, trf],
         feature_extractors=[lf],
         batch_size=20,
         text_column="excerpt",
+        target_column="target",
         cache=True,
         cache_ids=cache_ids,
         normalize=normalize,
-        extra_normalize_columns=["target"] if normalize else None
     )
     
     
@@ -110,7 +109,6 @@ def rp_train(model, output_path, device, n_layers=7, weighted_mse_min_weight=0.7
 
     rp_evaluation_metrics = [denormMSE]
 
-    print(model)
     model.rp_fit(
         train_reader=train_reader,
         valid_reader=valid_reader,
@@ -147,7 +145,7 @@ if __name__ == "__main__":
     device = args.device
     double = True
 
-    output_path = os.path.join(ablation_path, f"v16_regression_{count+2}")
+    output_path = os.path.join(ablation_path, f"v16_regression_{6}")
    
     model = ReadabilityTransformer(
         "checkpoints/ablations/eval_twostep/pred_twostep/pred_twostep_2",

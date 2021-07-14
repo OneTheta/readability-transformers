@@ -13,7 +13,7 @@ from readability_transformers import ReadabilityTransformer
 from readability_transformers.models import TwoStepTRFPrediction
 from readability_transformers.readers import PairwiseDataReader, FeaturesDataReader
 from readability_transformers.dataset import CEFRDataset
-from readability_transformers.features import LingFeatExtractor
+from readability_transformers.features import LingFeatExtractor, TransformersLogitsExtractor
 from readability_transformers.losses import DenormRMSELoss, RankingMSELoss, WeightedRankingMSELoss
 
 from readability_transformers import models
@@ -21,24 +21,28 @@ from readability_transformers import models
 LABELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
 
 def train():
+    device = "cuda:0"
+
   
     model = ReadabilityTransformer(
         "roberta-base",
-        new_checkpoint_path="checkpoints/dump/classification_1",
-        device="cuda:0",
+        new_checkpoint_path="checkpoints/dump/classification_2",
+        device=device,
         double=True
     )
 
     cefr_data = CEFRDataset("train")
-    train_df, valid_df= cefr_data.split_train_valid_test(ratios=(0.95, 0.05), ratio_cache_labels=("train_2", "valid_2"))
+    train_df, valid_df = cefr_data.split_train_valid_test(ratios=(0.95, 0.05), ratio_cache_labels=("train_2", "valid_2"))
 
     lf = LingFeatExtractor()
+    trf = TransformersLogitsExtractor(device=device)
+
     train_df, valid_df = model.pre_apply_features(
         df_list=[train_df, valid_df], 
-        feature_extractors=[lf],
+        feature_extractors=[lf, trf],
         text_column="text",
         cache=True,
-        cache_ids=["train_lf_cefr_full_2", "valid_lf_cefr_full_2"],
+        cache_ids=["train_lf_trf_cefr_full_2", "valid_lf_trf_cefr_full_2"],
         normalize=True
     )
 
@@ -50,14 +54,14 @@ def train():
     train_reader = FeaturesDataReader(train_df, features, text_column="text", target_column="label", classification=True, labels=LABELS)
     valid_reader = FeaturesDataReader(valid_df, features, text_column="text", target_column="label", classification=True, labels=LABELS)
 
-    readability_prediction = ResFCClassification(
-        input_size=len(features) + embedding_size,
-        n_layers=3,
-        h_size=512,
-        dropout=0.2,
-        n_labels=len(LABELS),
-        double=True
-    )
+    # readability_prediction = models.ResFCClassification(
+    #     input_size=len(features) + embedding_size,
+    #     n_layers=3,
+    #     h_size=512,
+    #     dropout=0.2,
+    #     n_labels=len(LABELS),
+    #     double=True
+    # )
 
     # model.init_rp_model(
     #     rp_model_name="ResFCClassification",
@@ -68,7 +72,15 @@ def train():
     #     dropout=0.2,
     #     n_labels=len(LABELS)
     # )
-    rp_model = models.ResFCClassification(input_size, n_layers, h_size, dropout=dropout, n_labels=n_labels, double=self.double)
+
+    input_size = len(features) + embedding_size
+    n_labels = len(LABELS)
+    n_layers = 6
+    h_size = 512
+    dropout = 0.2
+    double = True
+    
+    rp_model = models.ResFCClassification(input_size, n_layers, h_size, dropout=dropout, n_labels=n_labels, double=double)
     model.init_rp_model(rp_model)
     
     # @TODO implement max margin loss

@@ -8,7 +8,6 @@ from torch import nn
 from torch.nn import MSELoss
 from easydict import EasyDict as edict
 
-from sentence_transformers import SentenceTransformer, models, evaluation
 from readability_transformers import ReadabilityTransformer
 from readability_transformers.models import TwoStepTRFPrediction
 from readability_transformers.readers import PairwiseDataReader, PredictionDataReader

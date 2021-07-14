@@ -12,5 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .Prediction import Prediction, FCPrediction, ResFCClassification, ResFCRegression
+from .Prediction import Prediction, ClassificationHead, RegressionHead
+from .ResidualFCPrediction import ResFCClassification, ResFCRegression
+from .AttnFCPrediction import AttnFCClassification, AttnFCRegression
+from .TransformersEncoder import TransformersEncoder
+
 from .TwoStepArchitecture import TwoStepTRFPrediction, TwoStepFCPrediction

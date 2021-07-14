@@ -4,7 +4,7 @@ print(find_packages())
 setup(
   name = 'readability-transformers',      
   packages=find_packages(),
-  version = '0.1.7',     
+  version = '0.1.8,     
   license='Apache License 2.0',       
   description = 'Package for integrating transformer modules for readability-related NLP tasks.',  
   long_description=open("README.md", "r", encoding="utf-8").read(),
@@ -12,7 +12,7 @@ setup(
   author = 'Chan Woo Kim',                 
   author_email = 'chanwkim01@gmail.com',    
   url = 'https://github.com/OneTheta/readability-transformers', 
-  download_url = 'https://github.com/OneTheta/readability-transformers/archive/refs/tags/0.1.7.zip',    
+  download_url = 'https://github.com/OneTheta/readability-transformers/archive/refs/tags/0.1.8.zip',    
   python_requires=">=3.6.0",
   keywords = ['transformers'],   
   include_package_data=True,

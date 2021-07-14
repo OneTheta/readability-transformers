@@ -32,8 +32,7 @@ from importlib import import_module
 from sentence_transformers import SentenceTransformer, InputExample
 
 from readability_transformers.readers import PairwiseDataReader
-from .TransformersEncoder import TransformersEncoder
-from .Prediction import FCPrediction
+from . import TransformersEncoder, AttnFCRegression
 
 class TwoStepArchitecture(nn.Module):
     def __init__(self, sentence_transformer: SentenceTransformer, device: str, double: bool):
@@ -306,10 +305,11 @@ class TwoStepTRFPrediction_Wrapper(nn.Module):
         #     device=device
         # )
 
-        self.fully_connected = FCPrediction(
+        self.fully_connected = AttnFCRegression(
             input_size=self.embedding_size * 2,
             n_layers=self.n_layers,
             h_size=self.h_size,
+            dropout=0.1,
             double=self.double
         )
         print(self.fully_connected)

@@ -34,7 +34,7 @@ from tqdm.autonotebook import trange
 from sentence_transformers import SentenceTransformer, models, losses, evaluation
 
 from .readers import PairwiseDataReader, PredictionDataReader, FeaturesDataReader
-from .models import Prediction, FCPrediction, ResFCClassification, ResFCRegression, TwoStepArchitecture, TwoStepFCPrediction, TwoStepTRFPrediction
+from .models import Prediction, ResFCClassification, ResFCRegression, TwoStepArchitecture, TwoStepFCPrediction, TwoStepTRFPrediction
 from .features import FeatureBase
 from .file_utils import load_from_cache_pickle, save_to_cache_pickle, path_to_rt_model_cache, download_rt_model
 
@@ -43,7 +43,7 @@ CACHE_DIR = os.path.expanduser("~/.cache/readability-transformers/data")
 RT_MODEL_LOOKUP = "http://readability.1theta.com/models/"
 
 
-def _extract_features_batches(remain_id: str, remain_data: pd.DataFrame, feature_extractors) -> pd.DataFrame:
+def _extract_features_batches(remain_id: str, remain_data: pd.DataFrame, feature_extractors, text_column) -> pd.DataFrame:
     text_list = remain_data[text_column].values
     for batch_idx in trange(len(text_list) // batch_size + 1):
         if batch_idx * batch_size == len(text_list):
@@ -86,7 +86,7 @@ def _extract_features_batches(remain_id: str, remain_data: pd.DataFrame, feature
 
     return remain_data
 
-def _extract_features(remain_id, remain_data, feature_extractors) -> pd.DataFrame:
+def _extract_features(remain_id, remain_data, feature_extractors, text_column) -> pd.DataFrame:
     for idx, row in tqdm(remain_data.iterrows(), total=len(remain_data)):
         text = row[text_column] # refer to docstring
         text_features = dict()
@@ -539,6 +539,7 @@ class ReadabilityTransformer(nn.Module):
         save_best_model: bool,
         show_progress_bar: bool,
         gradient_accumulation: int,
+        freeze_trf_steps: int = None,
         output_path: str = None,
         device: str = "cpu"
     ):
@@ -549,25 +550,29 @@ class ReadabilityTransformer(nn.Module):
         """
         if output_path is None:
             output_path = self.model_path
-
         logger.add(os.path.join(output_path, "log.out"))
-        self.device = device
-        self.to(self.device)
-        self.train()
-        config = self.get_config()
         if evaluation_steps % gradient_accumulation != 0:
             logger.warning("Evaluation steps is not a multiple of gradient_accumulation. This may lead to perserve interpretation of evaluations.")
+        if output_path is None:
+            output_path = self.model_path
         
         # 1. Set up training
         train_loader = train_reader.get_dataloader(batch_size=batch_size)
         valid_loader = valid_reader.get_dataloader(batch_size=batch_size)
-
-
+        config = self.get_config()
+        self.device = device
+        self.to(self.device)
+        self.rp_model.to(self.device)
+        self.st_model.to(self.device)
+        self.freeze_trf_steps = freeze_trf_steps
+        if self.freeze_trf_steps is not None and self.freeze_trf_steps > 0:
+            for param in self.st_model.parameters():
+                param.requires_grad = False
+        self.train()
         optimizer = optim.Adam(self.parameters(), lr=lr, weight_decay=weight_decay)
-        self.best_loss = 9999999
         
+        self.best_loss = 9999999
         training_steps = 0
-
         for epoch in trange(epochs, desc="Epoch", disable=not show_progress_bar):
             epoch_train_loss = []
             for batch_idx, batch in enumerate(tqdm(train_loader, desc="Iteration", smoothing=0.05, disable=not show_progress_bar)):
@@ -593,7 +598,6 @@ class ReadabilityTransformer(nn.Module):
             
                 if (training_steps - 1) % gradient_accumulation == 0 or training_steps == len(train_loader):
                     torch.nn.utils.clip_grad_value_(self.parameters(), 1.)
-                    
                     optimizer.step()
                     optimizer.zero_grad()
                 
@@ -607,6 +611,14 @@ class ReadabilityTransformer(nn.Module):
                         current_step=training_steps,
                         config=config
                     )
+                if self.freeze_trf_steps is not None and self.freeze_trf_steps > 0:
+                    if training_steps >= self.freeze_trf_steps:
+                        print("Unfreezing trf model...")
+                        for param in self.st_model.parameters():
+                            assert param.requires_grad == False # shoudve been set off
+                            param.requires_grad = True
+                        self.freeze_trf_steps = None
+
        
             logger.info(f"Epoch {epoch} train loss avg={np.mean(epoch_train_loss)}")
             epoch_train_loss = []
@@ -745,7 +757,7 @@ class ReadabilityTransformer(nn.Module):
         return predicted_scores
 
     def predict(self, passages: List[str], batch_size: int = 1):
-        predictions, features, features_normalized = self.predict_verbose(passages, batch_size)
+        predictions, normed_features, prenormed_features = self.predict_verbose(passages, batch_size)
         return predictions
     
 
@@ -959,9 +971,9 @@ class ReadabilityTransformer(nn.Module):
             logger.info(f"Extracting features for cache_id={remain_id}")
 
             if batch_size is not None:
-                remain_data = _extract_features_batches(remain_id, remain_data, feature_extractors)
+                remain_data = _extract_features_batches(remain_id, remain_data, feature_extractors, text_column)
             else:
-                remain_data = _extract_features(remain_id, remain_data, feature_extractors)
+                remain_data = _extract_features(remain_id, remain_data, feature_extractors, text_column)
         
             features_applied[remain_id] = remain_data
 

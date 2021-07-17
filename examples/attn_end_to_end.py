@@ -47,16 +47,16 @@ def attn_end_to_end(args):
     # 2. Pre-Apply Features
     # 2.1 Define extractors 
     lf = LingFeatExtractor()
-    trf = TransformersLogitsExtractor(device)
+    # trf = TransformersLogitsExtractor(device)
     if feature_trf:
         feature_extractors = [lf, trf]
         cache_ids = ["train_lf_trf", "valid_lf_trf"]
     else:
         feature_extractors = [lf]
-        cache_ids = ["train_lf", "valid_lf"]
+        cache_ids = ["train_lf_real", "valid_lf_real"]
 
-    train_df = train_df.iloc[:100]
-    valid_df = valid_df.iloc[:100]
+    train_df = train_df[:50]
+    valid_df = valid_df[:50]
     train_df, valid_df = model.pre_apply_features(
         df_list=[train_df, valid_df], 
         feature_extractors=feature_extractors,
@@ -86,7 +86,8 @@ def attn_end_to_end(args):
 
     # Very Common-Lit specific:\
     stderr_stats = train_reader.get_standard_err_stats()
-    rp_train_metric = losses.WeightedMSELoss(
+    rp_train_metric = losses.WeightedRankingMSELoss(
+        alpha=0.5,
         min_err=stderr_stats["min"],
         max_err=stderr_stats["max"],
         min_weight=weighted_mse_min_weight
@@ -101,15 +102,16 @@ def attn_end_to_end(args):
         train_metric=rp_train_metric,
         evaluation_metrics=rp_evaluation_metrics,
         batch_size=32,
-        epochs=10,
+        epochs=1300,
         lr=lr,
         weight_decay=1e-8,
-        evaluation_steps=1000,
+        evaluation_steps=2048,
         save_best_model=True,
         show_progress_bar=True,
         gradient_accumulation=gradient_accumulation,
         device=device,
-        freeze_trf_steps=500
+        freeze_trf_steps=2048,
+        start_saving_from_step=10000
     )
 
 if __name__ == "__main__":

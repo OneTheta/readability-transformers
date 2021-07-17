@@ -1,2 +1,2 @@
-recursive-include features/lf/AdvancedSemantic/model *
-recursive-include features/lf/LexicoSemantic/resources *
+recursive-include readability_transformers/features/lf/AdvancedSemantic/model *
+recursive-include readability_transformers/features/lf/LexicoSemantic/resources *

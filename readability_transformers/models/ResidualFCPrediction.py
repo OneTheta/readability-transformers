@@ -128,5 +128,5 @@ class ResFCHiddenLinear(nn.Module):
         hidden_states_out = self.dropout(hidden_states_out)
         hidden_states_out = self.activation(hidden_states_out)
         hidden_states_out = self.layernorm(hidden_states + hidden_states_out)
-        return hidden_states
+        return hidden_states_out
         

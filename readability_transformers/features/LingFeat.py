@@ -17,6 +17,9 @@ from typing import List
 from .lf import extractor
 from . import FeatureBase
 
+import logging
+logging.getLogger("stanza").setLevel(logging.WARNING)
+
 """
 REFERENCES
 
@@ -48,7 +51,7 @@ DOCUMENT_LEVEL_SUBGROUPS = [
 
 class LingFeatExtractor(FeatureBase):
     def __init__(self, subgroups: List[str] = None):
-        self.subgroups = ['CKKF_', 'POSF_', 'PhrF_', 'TrSF_',
+        self.subgroups = ['CKKF_', 'POSF_', # 'PhrF_', 'TrSF_',
               'EnDF_', 'EnGF_', 'ShaF_', 'TraF_',
               'TTRF_', 'VarF_', 'PsyF_', 'WorF_']
         

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from .ReadNet import ReadNet
 from .ReadabilityTransformer import ReadabilityTransformer
 from . import dataset, models, features, losses, readers
 from .reset_cache import reset_cache

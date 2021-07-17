@@ -30,7 +30,6 @@ from tqdm import tqdm
 from tqdm.autonotebook import trange
 from importlib import import_module
 
-
 from readability_transformers.readers import PredictionDataReader
 
 class Prediction(nn.Module):

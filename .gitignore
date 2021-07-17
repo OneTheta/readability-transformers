@@ -18,7 +18,8 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
+MANIFEST.in
+readnet_temp
 nohup.out
 
 # securty

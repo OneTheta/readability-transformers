@@ -104,8 +104,7 @@ class ReadabilityTransformer(nn.Module):
         model_name: str,
         device: str,
         double: bool,
-        new_checkpoint_path: str = None,
-        default_st_model: str = None
+        new_checkpoint_path: str = None
     ):
         '''Initialize the ReadabilityTransformer, which first requires an instantiation
         of the SentenceTransformer then an instantiation of the Prediction model.
@@ -157,8 +156,6 @@ class ReadabilityTransformer(nn.Module):
             self.model_path = self.new_checkpoint_path
         elif self.new_checkpoint_path is None and self.model_path is None:
             print("Initializing readability transformers without checkpoint, must supply output_path to fit later on.")
-    
-        
 
     def process_model_path(self, model_path: str):
         '''
@@ -196,9 +193,7 @@ class ReadabilityTransformer(nn.Module):
             else:       
                 # case 3
                 local_path = download_rt_model(url)
-                return local_path
-
-        
+                return local_path     
 
     def setup_load_checkpoint(self, model_path):
         st_path = os.path.join(model_path, "0_SentenceTransformer")
@@ -375,7 +370,6 @@ class ReadabilityTransformer(nn.Module):
         self.rp_model = rp_model.to(self.device)
         # self.rp_model.features_in_order = features
 
-
     def st_fit(
         self, 
         train_readers: List[PairwiseDataReader], 
@@ -499,6 +493,7 @@ class ReadabilityTransformer(nn.Module):
             )
 
     def get_config(self):
+        return dict()
         """Get the parameters we want to re-load when reloading this RT model.
         """
         feature_extractors = []
@@ -539,6 +534,7 @@ class ReadabilityTransformer(nn.Module):
         save_best_model: bool,
         show_progress_bar: bool,
         gradient_accumulation: int,
+        start_saving_from_step: int = 0,
         freeze_trf_steps: int = None,
         output_path: str = None,
         device: str = "cpu"
@@ -609,7 +605,8 @@ class ReadabilityTransformer(nn.Module):
                         output_path=output_path,
                         save_best_model=save_best_model,
                         current_step=training_steps,
-                        config=config
+                        config=config,
+                        start_saving_from_step=start_saving_from_step
                     )
                 if self.freeze_trf_steps is not None and self.freeze_trf_steps > 0:
                     if training_steps >= self.freeze_trf_steps:
@@ -629,7 +626,8 @@ class ReadabilityTransformer(nn.Module):
                 output_path=output_path,
                 save_best_model=save_best_model,
                 current_step=training_steps,
-                config=config
+                config=config,
+                start_saving_from_step=start_saving_from_step
             )
     
     def _eval_during_training(
@@ -639,7 +637,8 @@ class ReadabilityTransformer(nn.Module):
         output_path: str, 
         save_best_model: bool,
         current_step: int,
-        config: dict
+        config: dict,
+        start_saving_from_step: int = 0
     ):
         self.eval()
         self.st_model.eval()
@@ -691,14 +690,14 @@ class ReadabilityTransformer(nn.Module):
         df.to_csv(csv_path, mode="a", header=(not os.path.isfile(csv_path)), columns=losses.keys()) # append to current fike.
         
         if save_best_model:
-            if sum_loss < self.best_loss:
-                self.save(output_path, config)
-                self.best_loss = sum_loss
-        
+            if current_step > start_saving_from_step:
+                if sum_loss < self.best_loss:
+                    self.save(output_path, config)
+                    self.best_loss = sum_loss
+            
         self.train()
         self.st_model.train()
         self.rp_model.train()
-
     
     def save(self, path, config):
         if path is None:
@@ -709,8 +708,6 @@ class ReadabilityTransformer(nn.Module):
         self.st_model.save(os.path.join(path, "0_SentenceTransformer"))
         logger.info("Saving to 1_Prediction...")
         self.rp_model.save(os.path.join(path, "1_Prediction"), self.get_config())
-
-
 
     def forward(self, passages: List[str], features: List[List[Union[float, np.array, torch.Tensor]]]):
         """Forward pass of the model with gradients whose outputs you can train with a loss function backwards pass.
@@ -760,7 +757,6 @@ class ReadabilityTransformer(nn.Module):
         predictions, normed_features, prenormed_features = self.predict_verbose(passages, batch_size)
         return predictions
     
-
     def predict_verbose(self, passages: List[str], batch_size: int = 1):
         """This is an inference function without gradients. For a forward pass of the model with gradients
         that lets you train the model, refer to self.forward(). 
@@ -1114,7 +1110,6 @@ class ReadabilityTransformer(nn.Module):
         self.embedding_size = collect_embeddings[0].shape[-1]
         return np.array(collect_embeddings)
 
-    
     def get_feature_list(self, dataframe: pd.DataFrame = None) -> List[str]:
         if dataframe is not None:
             return [col for col in dataframe.columns.values if col.startswith("feature_")]

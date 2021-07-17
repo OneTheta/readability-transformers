@@ -207,7 +207,6 @@ class ReadNet(ReadabilityTransformer):
                 loss.backward()
                 epoch_train_loss.append(loss.item() * gradient_accumulation) 
             
-            
                 if (training_steps - 1) % gradient_accumulation == 0 or training_steps == len(train_loader):
                     torch.nn.utils.clip_grad_value_(self.model.parameters(), 1.)
                     optimizer.step()
@@ -276,6 +275,7 @@ class ReadNet(ReadabilityTransformer):
 
                 targets_collect.append(targets)
                 predictions_collect.append(predicted_scores)
+                
 
         if len(targets_collect) > 1:
             targets_full = torch.stack(targets_collect[:-1], dim=0).flatten(end_dim=1)
@@ -303,11 +303,13 @@ class ReadNet(ReadabilityTransformer):
         csv_path = os.path.join(output_path, "evaluation_results.csv" )
         df.to_csv(csv_path, mode="a", header=(not os.path.isfile(csv_path)), columns=losses.keys()) # append to current fike.
         
-        if save_best_model:
-            if current_step > start_saving_from_step:
-                if sum_loss < self.best_loss:
-                    self.save(output_path, config)
-                    self.best_loss = sum_loss
+        # if save_best_model:
+        #     if current_step > start_saving_from_step:
+        #         if sum_loss < self.best_loss:
+        #             self.save(output_path, config)
+        #             self.best_loss = sum_loss
+        self.save(output_path, config)
+        self.best_loss = sum_loss
             
         self.model.train()
       
@@ -317,7 +319,7 @@ class ReadNet(ReadabilityTransformer):
 
         logger.info("Saving model to {}".format(path))
         
-        torch.save(self, os.path.join(path, "pytorch_model.bin"))
+        torch.save(self.model, os.path.join(path, "pytorch_model.bin"))
         config = self.get_config() # stuff to do with features n such
         pickle.dump(config, open(os.path.join(path, "RTconfig.pkl"), "wb"))
 

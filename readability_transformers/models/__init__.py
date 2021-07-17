@@ -14,7 +14,7 @@
 from .ReadNetModel import ReadNetModel
 from .ResidualFCPrediction import ResFCClassification, ResFCRegression
 from .Prediction import Prediction, ClassificationHead, RegressionHead
-from .AttnFCPrediction import AttnFCClassification, AttnFCRegression
+from .AttnFCPrediction import AttnFCClassification, AttnFCRegression, AttnFCRegressionLayerNorm, AttnResFCRegression
 from .TransformersEncoder import TransformersEncoder
 
 from .TwoStepArchitecture import TwoStepTRFPrediction, TwoStepFCPrediction

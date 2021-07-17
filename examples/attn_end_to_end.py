@@ -75,7 +75,7 @@ def attn_end_to_end(args):
     valid_reader = readers.FeaturesDataReader(valid_df, features, text_column="excerpt", target_column="target")
 
     # Initialize Prediction Model:
-    prediction_model = models.AttnResFCRegression(
+    prediction_model = models.AttnFCRegression(
         input_size = len(features) + embedding_size,
         n_layers = n_layers,
         h_size = h_size,

@@ -61,7 +61,7 @@ class ReadNet(ReadabilityTransformer):
         if hasattr(self, "st_model") and self.st_model is not None:
             return self.st_model
         elif hasattr(self, "model") and self.model is not None:
-            return model.sent_block.blocks
+            return self.model.sent_block.blocks
 
             
     def setup_load_checkpoint(self, model_path: str):
@@ -80,7 +80,7 @@ class ReadNet(ReadabilityTransformer):
                 
                 setattr(model, key, attribute)
             self.model = model
-            self.tokenizer = model.get_st_model().tokenizer
+            self.tokenizer = model.sent_block.blocks.tokenizer
             return model
         else:
             logger.info("RaedNet model not found. Creating new...")

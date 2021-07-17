@@ -291,7 +291,7 @@ class FCHiddenLinear(nn.Module):
 
 class FCHiddenLinearLayerNorm(nn.Module):
     def __init__(self, hidden_dim: int, layernorm_eps:float=1e-12, dropout: float=0.1, double: bool=False):
-        super(FCHiddenLinear, self).__init__()
+        super(FCHiddenLinearLayerNorm, self).__init__()
         self.hidden_dim = hidden_dim
         self.dropout = dropout
         self.double = double

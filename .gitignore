@@ -21,6 +21,7 @@ wheels/
 MANIFEST.in
 readnet_temp
 nohup.out
+readnet.out
 
 # securty
 readability_transformers/dataset/CEFRDataset.py

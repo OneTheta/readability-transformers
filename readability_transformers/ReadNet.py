@@ -162,6 +162,7 @@ class ReadNet(ReadabilityTransformer):
         """
         if output_path is None:
             output_path = self.model_path
+        config = self.get_config()
         logger.add(os.path.join(output_path, "log.out"))
         if evaluation_steps % gradient_accumulation != 0:
             logger.warning("Evaluation steps is not a multiple of gradient_accumulation. This may lead to perserve interpretation of evaluations.")
@@ -257,7 +258,6 @@ class ReadNet(ReadabilityTransformer):
     ):
         self.model.eval()
 
-
         targets_collect = []
         predictions_collect = []
         with torch.no_grad():
@@ -325,5 +325,7 @@ class ReadNet(ReadabilityTransformer):
         
         return self.model(tokenized_inputs, sent_feats, doc_feats)
 
+    def get_config(self):
+        return dict()
 
                 

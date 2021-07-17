@@ -493,7 +493,6 @@ class ReadabilityTransformer(nn.Module):
             )
 
     def get_config(self):
-        return dict()
         """Get the parameters we want to re-load when reloading this RT model.
         """
         feature_extractors = []

@@ -16,15 +16,17 @@ import os
 import pickle
 import random
 from math import fabs, erf, sqrt, log
+
 import pandas as pd
-from torch.utils.data import DataLoader, Dataset
 from loguru import logger
+from torch.utils.data import DataLoader, Dataset
 from sentence_transformers import InputExample
 
-from readability_transformers.file_utils import load_from_cache_pickle, save_to_cache_pickle
-from readability_transformers.readers import DataReader
-
-# CACHE_DIR = os.path.expanduser("~/.cache/readability-transformers/data")
+from . import DataReader
+from ..file_utils import (
+    load_from_cache_pickle, 
+    save_to_cache_pickle
+)
 
 
 class NormalDist:

@@ -29,10 +29,10 @@ def attn_end_to_end(args):
     # 0. Initialize ReadabilityTransformers
     os.makedirs("checkpoints", exist_ok=True)
     os.makedirs("checkpoints/v18_eval_ete", exist_ok=True)
-    output_path = f'checkpoints/v18_eval_ete/prediction_{count}'
+    output_path = f'checkpoints/v18_eval_ete/prediction_{count+1}'
     model = ReadabilityTransformer(
-        st_model_checkpoint,
-        new_checkpoint_path=output_path,
+        "checkpoints/v18_eval_ete/prediction_2",
+        new_checkpoint_path="checkpoints/v18_eval_ete/prediction_3",
         device=device,
         double=double
     )
@@ -111,7 +111,7 @@ def attn_end_to_end(args):
         gradient_accumulation=gradient_accumulation,
         device=device,
         freeze_trf_steps=2048,
-        start_saving_from_step=10000
+        # start_saving_from_step=10000
     )
 
 if __name__ == "__main__":

@@ -32,22 +32,7 @@ is the subject in one sentence then an object in the next; X-N transition occurs
 in non-subject or object position in one sentence and not present in the next, etc.7 The entity coherence
 features are the probability of each of these pairs of transitions.
 """
-FULL_SUBGROUPS = ['CKKF_', 'POSF_', 'PhrF_', 'TrSF_', 'EnDF_', 
-    'EnGF_', 'ShaF_', 'TraF_', 'TTRF_', 'VarF_', 'PsyF_', 'WorF_'
-]
 
-FULL_SUBGROUPS = ['CKKF_', 'POSF_', 'TrSF_', 
-     'ShaF_', 'TraF_', 'TTRF_', 'VarF_', 'PsyF_', 'WorF_'
-]
-
-
-SENTENCE_LEVEL_SUBGROUPS = [
-    "EnDF_", # Related to the count of entities found in the text
-    "PhrF_"  # Related to the counts of nouns, verbs, adverb phrases
-]
-DOCUMENT_LEVEL_SUBGROUPS = [
-    "EnGF_" # See Reference #1 above
-]
 
 class LingFeatExtractor(FeatureBase):
     def __init__(self, subgroups: List[str] = None):
@@ -63,8 +48,7 @@ class LingFeatExtractor(FeatureBase):
                 self.subgroups = subgroups
     
     def extract(self, text: str) -> dict:
-        num_tokens = len(text.split(" "))
-        LingFeat = extractor.pass_text(text)
+        LingFeat = extractor.pass_text(text, optimize_subgroups=self.subgroups)
         LingFeat.preprocess()
         features = {}
         for one_group in self.subgroups:
@@ -73,7 +57,7 @@ class LingFeatExtractor(FeatureBase):
         
         renamed = dict()
         for key in features.keys():
-            renamed["lf_"+key] = features[key] / num_tokens
+            renamed["lf_"+key] = features[key] 
         
         return renamed
 

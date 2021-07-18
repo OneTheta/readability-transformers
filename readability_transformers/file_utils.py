@@ -15,18 +15,16 @@
 import os
 import glob
 import json
-import requests
+import pickle
 import shutil
 import zipfile
 import tarfile
-import pickle
+import requests
 from tqdm import tqdm
-
 
 DATA_CACHE_DIR = os.path.expanduser("~/.cache/readability-transformers/data")
 MODEL_CACHE_DIR = os.path.expanduser("~/.cache/readability-transformers/models")
 MAPPER_PATH = os.path.expanduser("~/.cache/readability-transformers/mapper.json")
-
 
 
 def check_cache_exists_or_init():

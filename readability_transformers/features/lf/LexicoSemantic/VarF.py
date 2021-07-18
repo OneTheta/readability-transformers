@@ -52,16 +52,16 @@ def retrieve(NLP_doc):
     
     result = {
         "SimpNoV_S":float(division(n_unoun,(len(noun_list)))),
-        "SquaNoV_S":float(division((n_unoun)**2,(len(noun_list)))),
+        # "SquaNoV_S":float(division((n_unoun)**2,(len(noun_list)))),
         "CorrNoV_S":float(division(n_unoun,(math.sqrt(2*len(noun_list))))),
         "SimpVeV_S":float(division(n_uverb,(len(verb_list)))),
-        "SquaVeV_S":float(division((n_uverb)**2,(len(verb_list)))),
+        # "SquaVeV_S":float(division((n_uverb)**2,(len(verb_list)))),
         "CorrVeV_S":float(division(n_uverb,(math.sqrt(2*len(verb_list))))),
         "SimpAjV_S":float(division(n_uadje,(len(adje_list)))),
-        "SquaAjV_S":float(division((n_uadje)**2,(len(adje_list)))),
+        # "SquaAjV_S":float(division((n_uadje)**2,(len(adje_list)))),
         "CorrAjV_S":float(division(n_uadje,(math.sqrt(2*len(adje_list))))),
         "SimpAvV_S":float(division(n_uadve,(len(adve_list)))),
-        "SquaAvV_S":float(division((n_uadve)**2,(len(adve_list)))),
+        # "SquaAvV_S":float(division((n_uadve)**2,(len(adve_list)))),
         "CorrAvV_S":float(division(n_uadve,(math.sqrt(2*len(adve_list))))),
     }
 

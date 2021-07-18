@@ -1,7 +1,12 @@
 import os
 import shutil
 
-from .file_utils import DATA_CACHE_DIR, MODEL_CACHE_DIR, MAPPER_PATH, check_cache_exists_or_init
+from .file_utils import (
+    DATA_CACHE_DIR, 
+    MODEL_CACHE_DIR, 
+    MAPPER_PATH, 
+    check_cache_exists_or_init
+)
 
 def reset_cache():
     if os.path.isdir(DATA_CACHE_DIR):

@@ -15,10 +15,14 @@ References:
 >>> Word Frequency features inspired by 
 Publication 1: Vajjala, Sowmya, and Detmar Meurers. "Readability-based sentence ranking for evaluating text simplification." (2015).
 """
-
+import os
 import pandas as pd
 
-def retrieve(token_list, n_token, n_sent, dir_path):
+dir_path = os.path.dirname(os.path.realpath(__file__))
+DB = pd.read_csv(os.path.join(dir_path, 'resources/SUBTLEXus.csv'))
+DB.set_index('Word_lowercased', inplace=True, drop=True)
+
+def retrieve(token_list, n_token, n_sent):
     to_SbFrQ_C = 0
     to_SbCDC_C = 0
     to_SbFrL_C = 0
@@ -28,8 +32,6 @@ def retrieve(token_list, n_token, n_sent, dir_path):
     to_SbSBC_C = 0
     to_SbL1C_C = 0
 
-    DB = pd.read_csv(dir_path+'/LexicoSemantic/resources/SUBTLEXus.csv')
-    DB.set_index('Word_lowercased', inplace=True, drop=True)
     for token in token_list:
         if token in DB.index:
             scores_for_this_token = list(DB.loc[token, :])

@@ -13,35 +13,47 @@
 # limitations under the License.
 
 import os
-import re
 import time
 import json
 import shutil
 import pickle
 import requests
 from typing import List, Union
+
+import torch
 import numpy as np
 import pandas as pd
-import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
-from loguru import logger
+import torch.nn.functional as F
 from tqdm import tqdm
+from loguru import logger
 from tqdm.autonotebook import trange
-
-
 from sentence_transformers import SentenceTransformer, models, losses, evaluation
 
-from .readers import PairwiseDataReader, PredictionDataReader, FeaturesDataReader
-from .models import Prediction, ResFCClassification, ResFCRegression, TwoStepArchitecture, TwoStepFCPrediction, TwoStepTRFPrediction
+from .readers import (
+    PairwiseDataReader, 
+    PredictionDataReader, 
+    FeaturesDataReader
+)
+from .models import (
+    Prediction, 
+    ResFCClassification, 
+    ResFCRegression, 
+    TwoStepArchitecture, 
+    TwoStepFCPrediction, 
+    TwoStepTRFPrediction
+)
 from .features import FeatureBase
-from .file_utils import load_from_cache_pickle, save_to_cache_pickle, path_to_rt_model_cache, download_rt_model
-
+from .file_utils import (
+    load_from_cache_pickle, 
+    save_to_cache_pickle, 
+    path_to_rt_model_cache, 
+    download_rt_model
+)
 
 CACHE_DIR = os.path.expanduser("~/.cache/readability-transformers/data")
 RT_MODEL_LOOKUP = "http://readability.1theta.com/models/"
-
 
 def _extract_features_batches(remain_id: str, remain_data: pd.DataFrame, feature_extractors, text_column) -> pd.DataFrame:
     text_list = remain_data[text_column].values
@@ -148,12 +160,18 @@ class ReadabilityTransformer(nn.Module):
 
             if self.model_path:
                 shutil.copytree(self.model_path, new_checkpoint_path)
+                self.model_path = self.new_checkpoint_path
+                
             else:
                 os.makedirs(self.new_checkpoint_path, exist_ok=True)
                 self.model_path = self.new_checkpoint_path
                 self.setup_load_checkpoint(self.new_checkpoint_path)
 
-            self.model_path = self.new_checkpoint_path
+            self.st_path = os.path.join(self.model_path, "0_SentenceTransformer")
+            self.rp_path = os.path.join(self.model_path, "1_Prediction")
+
+            
+
         elif self.new_checkpoint_path is None and self.model_path is None:
             print("Initializing readability transformers without checkpoint, must supply output_path to fit later on.")
 
@@ -197,9 +215,9 @@ class ReadabilityTransformer(nn.Module):
 
     def setup_load_checkpoint(self, model_path):
         st_path = os.path.join(model_path, "0_SentenceTransformer")
-        st_tf_path = os.path.join(st_path, "0_Transformer")
-
         rp_path = os.path.join(model_path, "1_Prediction")
+
+        st_tf_path = os.path.join(st_path, "0_Transformer")
         rp_torch_path = os.path.join(rp_path, "pytorch_model.bin")
 
         if os.path.isdir(model_path):
@@ -339,7 +357,6 @@ class ReadabilityTransformer(nn.Module):
         dropout: int = 0.1,
         n_labels=1 # only used if the request model is a classification model.
     ):
-
         if self.st_model is None:
             raise Exception("Cannot initialize ReadabilityPrediction model before loading/initializing a SentenceTransformer model.")
 
@@ -581,7 +598,7 @@ class ReadabilityTransformer(nn.Module):
 
                 predicted_scores = self.forward(passage_inputs, feature_inputs)
 
-                if "standard_err" in batch.keys():
+                if "standard_err" in batch.keys() and "standard_errors" in train_metric.forward.__code__.co_varnames:
                     standard_err = batch["standard_err"].to(self.device)
                     loss = train_metric(predicted_scores, targets, standard_err) / gradient_accumulation
                 else:
@@ -773,7 +790,7 @@ class ReadabilityTransformer(nn.Module):
         self.rp_model.eval()
         
         """
-        1. Sentences -> Lingfeat features
+        1. Sentences -> features
         """
         if self.rp_model is None or self.st_model is None:
             raise Exception("Cannot make predictions without both the SentenceTransformer model and the Prediction model loaded.")
@@ -803,8 +820,6 @@ class ReadabilityTransformer(nn.Module):
                 assert len(feature_dict_list) == len(one_batch)
 
             for passage_idx in range(len(one_batch)):
-                # complete_faetures_per_passage = full feature dictionary corresponding for that passage 
-                # from all the feature extractors
                 complete_features_per_passage = dict()
                 for feature_dict_list in feature_dict_list_collect:
                     passage_feature_dict = feature_dict_list[passage_idx]
@@ -849,7 +864,6 @@ class ReadabilityTransformer(nn.Module):
                 one_prediction = self.forward(passage_batch, feature_batch)
 
                 predictions_collect.append(one_prediction)
-
 
             if len(predictions_collect) > 1:
                 predictions = torch.stack(predictions_collect[:-1], dim=0).flatten(end_dim=1)
@@ -901,6 +915,7 @@ class ReadabilityTransformer(nn.Module):
         normalize=False,
         extra_normalize_columns: List[str] = None
     ) -> List[pd.DataFrame]: 
+       
         """Applies the feature classes on the dataframes in df_list such that new columns are appended for each feature.
         ReadabilityTransformers is able to do such feature extraction on-the-fly as well. But this can be inefficient when
         training multiple epochs, since the same feature extraction will occur repeatedly. This function allows one feature
@@ -928,6 +943,9 @@ class ReadabilityTransformer(nn.Module):
 
         if cache_ids:
             if len(cache_ids) != len(df_list):
+                print("cache_ids", len(cache_ids))
+                print("cache_ids", cache_ids)
+                print("df_list", len(df_list))
                 raise Exception("The list of labels must match the df_list parameter.")
         if cache:
             if cache_ids is None:

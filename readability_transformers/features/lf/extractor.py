@@ -76,9 +76,15 @@ class pass_text:
     - self.origin_doc
     - self.NLP_doc: spacy pipeline object
     """
-    def __init__(self, text:str):
+    def __init__(self, text:str, optimize_subgroups=None):
         self.NLP_doc = NLP(text)
         self.origin_doc = text
+        self.optimize_subgroups = optimize_subgroups
+
+        if "PhrF_" in optimize_subgroups and "TrSF_" in optimize_subgroups:
+            self.optimize_phrf_trsf = True
+            
+
 
 
 
@@ -381,10 +387,26 @@ class pass_text:
     - ra_AvAjP_C: ratio of Adv phrases count to Adj phrases count
     """
     def PhrF_(self):
+        if hasattr(self, "optimize_phrf_trsf"):
+            if self.optimize_phrf_trsf == True:
+                dataset_list = _optimize_phrf_trsf(SuPar, self.sent_token_list, self.n_token, self.n_sent)
+                self.optimize_phrf_trsf = {"dataset_list": dataset_list}
+            elif isinstance(self.optimize_phrf_trsf, dict):
+                dataset_list = self.optimize_phrf_trsf["dataset_list"]
+                result = Synta_PhrF.retrieve_supar_optimized(
+                    dataset_list, 
+                    self.sent_token_list,
+                    self.n_token,
+                    self.n_sent
+                )
+                result = nan_check(result)
+                return result
+
+
         result = Synta_PhrF.retrieve(SuPar, self.sent_token_list, self.n_token, self.n_sent)
         result = nan_check(result)
         return result
-    
+
 
 
     """
@@ -399,6 +421,21 @@ class pass_text:
     - at_FTree_C: average length of flattened Trees per token (word)
     """
     def TrSF_(self):
+        if hasattr(self, "optimize_phrf_trsf"):
+            if self.optimize_phrf_trsf == True:
+                dataset_list = _optimize_phrf_trsf(SuPar, self.sent_token_list, self.n_token, self.n_sent)
+                self.optimize_phrf_trsf = {"dataset_list": dataset_list}
+            elif isinstance(self.optimize_phrf_trsf, dict):
+                dataset_list = self.optimize_phrf_trsf["dataset_list"]
+                result = Synta_TrSF.retrieve_supar_optimized(
+                    dataset_list, 
+                    self.sent_token_list,
+                    self.n_token,
+                    self.n_sent
+                )
+                result = nan_check(result)
+                return result
+            
         result = Synta_TrSF.retrieve(SuPar, self.sent_token_list, self.n_token, self.n_sent)
         result = nan_check(result)
         return result
@@ -542,7 +579,7 @@ class pass_text:
     - at_AACoL_C: average AoA of lemmas, Cortese and Khanna norm per token
     """
     def PsyF_(self):
-        result = LxSem_PsyF.retrieve(self.token_list, self.n_token, self.n_sent, dir_path)
+        result = LxSem_PsyF.retrieve(self.token_list, self.n_token, self.n_sent)
         result = nan_check(result)
         return result
 
@@ -584,7 +621,7 @@ class pass_text:
     - at_SbL1C_C: average SubtlexUS Lg10CD value per token
     """
     def WorF_(self):
-        result = LxSem_WorF.retrieve(self.token_list, self.n_token, self.n_sent, dir_path)
+        result = LxSem_WorF.retrieve(self.token_list, self.n_token, self.n_sent)
         result = nan_check(result)
         return result
 
@@ -623,3 +660,10 @@ class pass_text:
         result = ShaTr_TraF.retrieve(self.origin_doc, self.sent_token_list, self.n_sent, self.n_token)
         result = nan_check(result)
         return result
+
+def _optimize_phrf_trsf(SuPar, sent_token_list, n_token, n_sent):
+    dataset_list = []
+    for sent in sent_token_list:
+        dataset = SuPar.predict([sent], prob=True, verbose=False)
+        dataset_list.append(dataset)
+    return dataset_list

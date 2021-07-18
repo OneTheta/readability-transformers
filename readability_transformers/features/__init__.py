@@ -16,3 +16,5 @@ from .FeatureBase import FeatureBase, CustomFeatureExtractor
 from .TRUNAJOD import TRUNAJODExtractor
 from .LingFeat import LingFeatExtractor
 from .TransformersLogits import TransformersLogitsExtractor
+from .DocumentLingFeat import DocumentLingFeatExtractor
+from .SentenceLingFeat import SentenceLingFeatExtractor

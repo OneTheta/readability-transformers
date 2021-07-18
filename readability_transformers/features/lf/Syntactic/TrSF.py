@@ -36,3 +36,22 @@ def retrieve(SuPar, sent_token_list, n_token, n_sent):
         "at_FTree_C": float(division(to_FTree_C,n_token)),
     }
     return result
+
+def retrieve_supar_optimized(dataset_list, sent_token_list, n_token, n_sent):
+    to_TreeH_C = 0
+    to_FTree_C = 0
+    for idx, sent in enumerate(sent_token_list):
+        dataset = dataset_list[idx]
+        parsed_tree = dataset.sentences
+        nltk_tree = nltk.Tree.fromstring(str(parsed_tree[0]))
+        to_TreeH_C += int(nltk_tree.height())
+        to_FTree_C += len(nltk_tree.flatten())
+    result = {
+        "to_TreeH_C": to_TreeH_C,
+        "as_TreeH_C": float(division(to_TreeH_C,n_sent)),
+        "at_TreeH_C": float(division(to_TreeH_C,n_token)),
+        "to_FTree_C": to_FTree_C,
+        "as_FTree_C": float(division(to_FTree_C,n_sent)),
+        "at_FTree_C": float(division(to_FTree_C,n_token)),
+    }
+    return result

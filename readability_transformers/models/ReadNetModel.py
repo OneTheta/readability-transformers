@@ -32,7 +32,6 @@ class MultiHeadAttention(nn.Module):
             outs.append(attns.bmm(vi))
         return torch.cat(outs, dim=2)
 
-
 class AddNorm(nn.Module):
     def __init__(self, d_model):
         super().__init__()
@@ -40,7 +39,6 @@ class AddNorm(nn.Module):
 
     def forward(self, x1, x2):
         return self.ln(x1+x2)
-
 
 class FeedForward(nn.Module):
     def __init__(self, d_model):
@@ -50,7 +48,6 @@ class FeedForward(nn.Module):
         self.l2 = nn.Linear(d_model, d_model)
     def forward(self, x):
         return self.l2(self.relu(self.l1(x)))
-
 
 def pos_encode(x):
     pos, dim = torch.meshgrid(torch.arange(x.shape[1]), torch.arange(x.shape[2]))
@@ -64,7 +61,6 @@ def pos_encode(x):
         addition = addition.cuda()
     return x + addition
 
-
 class EncoderBlock(nn.Module):
     def __init__(self, d_model, num_heads):
         super().__init__()
@@ -77,7 +73,6 @@ class EncoderBlock(nn.Module):
         x = self.an1(x, self.mha(q=x, k=x, v=x))
         return self.an2(x, self.ff(x))
 
-
 class AttentionAggregation(nn.Module):
     def __init__(self, d_model):
         super().__init__()
@@ -88,7 +83,6 @@ class AttentionAggregation(nn.Module):
         enc = torch.bmm(attns.transpose(1, 2), x)  # (b, 1, m)
         return enc.squeeze(1)
 
-
 class LinTanh(nn.Module):
     def __init__(self, d_model):
         super().__init__()
@@ -98,7 +92,6 @@ class LinTanh(nn.Module):
     def forward(self, x):
         return self.tanh(self.lin(x))
 
-
 class LinFeatConcat(nn.Module):
     def __init__(self, d_model, n_feats, n_out):
         super().__init__()
@@ -107,13 +100,9 @@ class LinFeatConcat(nn.Module):
         self.lin = nn.Linear(d_model + n_feats, n_out, bias=False)  # TODO what if True?
 
     def forward(self, x, feats):
-
         concatenated = torch.cat([x, feats], dim=1)
-    
         dense_out = self.lin(concatenated)
-    
         return dense_out
-       
 
 class ReadNetBlock(nn.Module):
     def __init__(self, d_model, n_heads, n_blocks, n_feats, n_out):

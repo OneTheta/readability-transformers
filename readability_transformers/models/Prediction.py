@@ -14,23 +14,24 @@
 
 import os
 import json
+import tqdm
+import pickle
 import inspect
 import importlib
-import numpy as np
-import pandas as pd
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-import pickle
-from loguru import logger
-from typing import List, Tuple
-import tqdm
-from tqdm import tqdm
-from tqdm.autonotebook import trange
 from importlib import import_module
 
-from readability_transformers.readers import PredictionDataReader
+import torch
+import numpy as np
+import pandas as pd
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+from loguru import logger
+from typing import List, Tuple
+from tqdm import tqdm
+from tqdm.autonotebook import trange
+
+from ..readers import PredictionDataReader
 
 class Prediction(nn.Module):
     def __init__(self, input_size: int, double: bool):
@@ -94,8 +95,6 @@ class Prediction(nn.Module):
                 inputs = batch["inputs"].to(self.device)
                 targets = batch["target"].to(self.device)
                 predicted_scores = self.forward(inputs)
-
-                
 
                 if "standard_err" in batch.keys() and "standard_errors" in train_metric.forward.__code__.co_varnames:
                     standard_err = batch["standard_err"].to(self.device)

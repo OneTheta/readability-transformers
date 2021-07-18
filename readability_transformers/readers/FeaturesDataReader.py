@@ -21,13 +21,14 @@ In contrast, PredictionDataReader was for rp_model.fit() and it served that
 purpose by having the sentence embeddings be part of the dataset, since rp_model.fit()
 only trains the prediction layer, separate from the transformer neural features.
 """
+from typing import List
 
 import torch
 import numpy as np
 import pandas as pd
-from typing import List
-from readability_transformers.readers import DataReader
 from torch.utils.data import Dataset, DataLoader
+
+from . import DataReader
 
 class FeaturesDataset(Dataset):
     def __init__(self, inputs, targets, standard_err=None, data_ids=None):

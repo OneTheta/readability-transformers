@@ -16,18 +16,20 @@ References:
 Publication 1: Kuperman, Victor, Hans Stadthagen-Gonzalez, and Marc Brysbaert. "Age-of-acquisition ratings for 30,000 English words." Behavior research methods 44.4 (2012): 978-990.
 Publication 2: Vajjala, Sowmya, and Detmar Meurers. "Readability-based sentence ranking for evaluating text simplification." (2015).
 """
-
+import os
 import pandas as pd
 
-def retrieve(token_list, n_token, n_sent, dir_path):
+dir_path = os.path.dirname(os.path.realpath(__file__))
+DB = pd.read_csv(os.path.join(dir_path, 'resources/AoAKuperman.csv'))
+DB.set_index('Word', inplace=True, drop=True)
+
+def retrieve(token_list, n_token, n_sent):
     to_AAKuW_C = 0
     to_AAKuL_C = 0
     to_AABiL_C = 0
     to_AABrL_C = 0
     to_AACoL_C = 0
 
-    DB = pd.read_csv(dir_path+'/LexicoSemantic/resources/AoAKuperman.csv')
-    DB.set_index('Word', inplace=True, drop=True)
     for token in token_list:
         if token in DB.index:
             scores_for_this_token = list(DB.loc[token, :])
